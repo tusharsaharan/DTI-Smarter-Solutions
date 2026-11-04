@@ -36,10 +36,10 @@ export function loadDesignPreview() {
     notifications: [
       { id: 'n1', app: 'WhatsApp', appPackage: 'com.whatsapp', sender: 'Prof. Mehta', conversation: 'CSE-A 2026', text: 'Exam hall changed to B-204, reporting 9:45 sharp.', postedAt: now - 4 * min, score: 0.94, tier: 'class', urgency: 0.91, verdict: 'priority', reasons: ['Time-sensitive', 'Exam', 'Class group'] },
       { id: 'n2', app: 'WhatsApp', appPackage: 'com.whatsapp', sender: 'Didi', conversation: null, text: 'call me when free, dadi ka checkup hai', postedAt: now - 11 * min, score: 0.88, tier: 'family', urgency: 0.62, verdict: 'priority', reasons: ['Family', 'Asks for a call'] },
-      { id: 'n3', app: 'WhatsApp', appPackage: 'com.whatsapp', sender: 'Rohit', conversation: 'CSE-A 2026', text: '😂😂 this meme is literally us', postedAt: now - 6 * min, score: 0.08, tier: 'class', urgency: 0.02, verdict: 'digest', reasons: ['Low urgency'] },
+      { id: 'n3', app: 'WhatsApp', appPackage: 'com.whatsapp', sender: 'Rohit', conversation: 'CSE-A 2026', text: 'this meme is literally us', postedAt: now - 6 * min, score: 0.08, tier: 'class', urgency: 0.02, verdict: 'digest', reasons: ['Low urgency'] },
       { id: 'n4', app: 'Instagram', appPackage: 'com.instagram.android', sender: 'Instagram', conversation: null, text: 'karan.03 and 4 others liked your reel', postedAt: now - 20 * min, score: 0.05, tier: 'unknown', urgency: 0.01, verdict: 'digest', reasons: ['Social'] },
       { id: 'n5', app: 'Telegram', appPackage: 'org.telegram.messenger', sender: 'Anjali', conversation: 'DTI Team', text: 'anyone have notes for unit 3?', postedAt: now - 32 * min, score: 0.31, tier: 'close', urgency: 0.2, verdict: 'digest', reasons: ['Question', 'Not urgent'] },
-      { id: 'n6', app: 'Myntra', appPackage: 'com.myntra.android', sender: 'Myntra', conversation: null, text: 'FLAT 60% OFF ends tonight 🔥', postedAt: now - 45 * min, score: 0.02, tier: 'unknown', urgency: 0.1, verdict: 'digest', reasons: ['Promotion'] },
+      { id: 'n6', app: 'Myntra', appPackage: 'com.myntra.android', sender: 'Myntra', conversation: null, text: 'FLAT 60% OFF ends tonight', postedAt: now - 45 * min, score: 0.02, tier: 'unknown', urgency: 0.1, verdict: 'digest', reasons: ['Promotion'] },
     ],
     keyboard: {
       wordsLearned: 312,

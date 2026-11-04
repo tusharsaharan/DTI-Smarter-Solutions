@@ -67,6 +67,7 @@ Minimize token usage wherever it does not reduce the quality of the finished res
 - Privacy card per feature: what is sensed, where it's stored, how to delete it.
 - UI: only use design tokens (no raw colours or sizes), Reanimated + Skia for motion and visuals, haptics on state changes,
   dark and light themes. No 3D. Run the design-critique / polish skills on every new screen.
+- No authored emoji in source, sample UI content, or documentation. Use shared vector icons or plain text. Unicode input tests may use escaped fixtures; preserve the pinned third-party model vocabulary and original user messages. Run `npm run check:emoji` at the repo root.
 - Commit small, conventional messages (`feat(notify): ...`).
 
 The Priority Inbox may use a local workstation GPU for offline model training/evaluation only; its Android runtime remains CPU/on-device. The concurrent chat compressor's GPU, models, and sessions are reserved and must not be touched.

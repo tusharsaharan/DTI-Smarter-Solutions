@@ -122,10 +122,10 @@ def prepare() -> None:
     (ASSETS / "references.json").write_text(json.dumps([
         {"intent": label, "vector": vector.tolist()} for (label, _), vector in zip(reference, vectors)
     ], separators=(",", ":")), encoding="utf-8")
-    goldens = ["Urgent, call me now!", "Kal exam cancel ho gaya.", "मुझे अभी मदद चाहिए।", "CAFE café中文", "No need to submit today.", "café cafe\u0301", "a\ue000b\u0001c\u200bd", "[CLS]hello [MASK] [SEP] [PAD] [UNK]", "🚨अभी मदद𠀀中文!"]
+    goldens = ["Urgent, call me now!", "Kal exam cancel ho gaya.", "मुझे अभी मदद चाहिए।", "CAFE café中文", "No need to submit today.", "café cafe\u0301", "a\ue000b\u0001c\u200bd", "[CLS]hello [MASK] [SEP] [PAD] [UNK]", "\U0001f6a8अभी मदद𠀀中文!"]
     (Path(__file__).parent / "tokenizer_golden.json").write_text(json.dumps([
         {"text": text, "ids": tokenizer(text, truncation=True, max_length=MAX_LENGTH)["input_ids"]} for text in goldens
-    ], ensure_ascii=False, indent=2), encoding="utf-8")
+    ], ensure_ascii=True, indent=2), encoding="utf-8")
     manifest = {"model": REPO, "revision": REVISION, "license": "Apache-2.0", "maxLength": MAX_LENGTH,
         "dimensions": int(weight.shape[0]), "minimumSimilarity": .60, "minimumMargin": .08,
         "note": "Semantic reference similarity, not a calibrated accuracy probability. Abstain outside reference coverage.",

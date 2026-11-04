@@ -299,10 +299,10 @@ export default function DashboardPage() {
                         </Link>
                         <button
                           onClick={() => deleteSession(s)}
-                          className="text-slate-600 hover:text-red-400"
+                          className="text-slate-400 hover:text-red-400"
                           title="Delete"
                         >
-                          ✕
+                          Delete
                         </button>
                       </td>
                     </tr>

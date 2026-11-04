@@ -15,7 +15,7 @@ Rather than mockups or cloud-dependent demos, Attune is engineered as a real And
 
 ---
 
-## 🌟 The 5 Core Capabilities
+## The 5 Core Capabilities
 
 | # | Feature | Core Signal | System Action | Privacy Boundary |
 |---|---|---|---|---|
@@ -27,7 +27,7 @@ Rather than mockups or cloud-dependent demos, Attune is engineered as a real And
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 Attune separates persistent, low-overhead system sensing (written in Kotlin) from the user interface (built with React Native & Expo Modules):
 
@@ -73,7 +73,7 @@ Attune separates persistent, low-overhead system sensing (written in Kotlin) fro
 
 ---
 
-## 🔒 Privacy & Degradation Guarantees
+## Privacy & Degradation Guarantees
 
 1. **On-Device Exclusivity**:
    - Raw notification contents, keystrokes, camera frames, and audio waveforms **never** leave the phone.
@@ -84,7 +84,7 @@ Attune separates persistent, low-overhead system sensing (written in Kotlin) fro
 
 ---
 
-## 📁 Repository Layout
+## Repository Layout
 
 ```text
 .
@@ -114,7 +114,7 @@ Attune separates persistent, low-overhead system sensing (written in Kotlin) fro
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -185,7 +185,7 @@ docker-compose up --build
 
 ---
 
-## 🧪 Testing & Verification
+## Testing & Verification
 
 The project includes unit test coverage across all major boundaries:
 
@@ -197,6 +197,6 @@ The project includes unit test coverage across all major boundaries:
 
 ---
 
-## 📜 Credits & Attributions
+## Credits & Attributions
 
 Attune builds upon open-source foundations and system platform APIs. Detailed licensing boundaries and attributions can be found in [CREDITS.md](CREDITS.md).

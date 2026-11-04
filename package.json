@@ -1,5 +1,8 @@
 {
   "name": "attune",
   "private": true,
-  "workspaces": ["apps/mobile", "packages/*"]
+  "workspaces": ["apps/mobile", "packages/*"],
+  "scripts": {
+    "check:emoji": "node --test scripts/check-no-emoji.test.mjs && node scripts/check-no-emoji.mjs"
+  }
 }

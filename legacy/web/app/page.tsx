@@ -50,17 +50,17 @@ export default function LandingPage() {
       <section className="mx-auto max-w-5xl px-4 pb-20 sm:px-6">
         <div className="grid gap-6 md:grid-cols-3">
           <ProblemCard
-            emoji="🕐"
+            index="01"
             title="The glance"
             body="You look at your phone to check the time. 11 seconds. Your screen-time report logs 11 seconds of 'usage.' Multiply by 40 glances a day."
           />
           <ProblemCard
-            emoji="📱"
+            index="02"
             title="The zombie stream"
             body="A video keeps playing while you make coffee. The meter happily ticks away. You weren't there. It doesn't know."
           />
           <ProblemCard
-            emoji="🪞"
+            index="03"
             title="The guilt machine"
             body="A number you can't trust becomes the number you judge yourself by. A bad metric is worse than no metric."
           />
@@ -138,17 +138,17 @@ export default function LandingPage() {
 }
 
 function ProblemCard({
-  emoji,
+  index,
   title,
   body,
 }: {
-  emoji: string;
+  index: string;
   title: string;
   body: string;
 }) {
   return (
     <div className="card p-6">
-      <div className="text-3xl">{emoji}</div>
+      <span aria-hidden="true" className="font-mono text-xs tracking-widest text-cyan-400">{index}</span>
       <h3 className="mt-3 font-bold text-slate-100">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
     </div>

@@ -9,10 +9,12 @@ import org.junit.Test
 
 class BertWordPieceTokenizerTest {
   private data class GoldenEncoding(val text: String, val ids: List<Long>)
+  // Escaped fixture only: retain supplementary-symbol input coverage without authored decoration.
+  private val supplementarySymbol = "\uD83D\uDE00"
   // Special IDs deliberately differ from the released vocabulary; IDs must come from line order.
   private val vocab = listOf(
     "[UNK]", "[CLS]", "[PAD]", "[SEP]", "[MASK]", "Hello", "hello", "world", "!", ",",
-    "un", "##aff", "##able", "café", "cafe", "##\u0301", "中", "文", "𠀀", "😀", "##😀",
+    "un", "##aff", "##able", "café", "cafe", "##\u0301", "中", "文", "𠀀", supplementarySymbol, "##$supplementarySymbol",
     "foo", "bar", "foobar", "。", "$", "नमस्ते", "##जी", "’", "s", "a", "##b"
   )
   private val tokenizer = BertWordPieceTokenizer(vocab)
@@ -72,11 +74,11 @@ class BertWordPieceTokenizerTest {
 
   @Test
   fun wordLengthLimitCountsUnicodeCodePointsRatherThanUtf16Units() {
-    val encoded = tokenizer.encode("😀".repeat(60))
+    val encoded = tokenizer.encode(supplementarySymbol.repeat(60))
     assertEquals(62, encoded.size)
-    assertEquals(vocab.indexOf("😀").toLong(), encoded[1])
-    assertTrue(encoded.slice(2 until encoded.lastIndex).all { it == vocab.indexOf("##😀").toLong() })
-    expect("😀".repeat(101), "[UNK]")
+    assertEquals(vocab.indexOf(supplementarySymbol).toLong(), encoded[1])
+    assertTrue(encoded.slice(2 until encoded.lastIndex).all { it == vocab.indexOf("##$supplementarySymbol").toLong() })
+    expect(supplementarySymbol.repeat(101), "[UNK]")
   }
 
   @Test
