@@ -159,7 +159,12 @@ export const control = {
   tab: { width: 320, inset: 6, itemHeight: 50, icon: 18 },
   feature: { icon: 40, storyIcon: 56, wideHeight: 172, indexWidth: 28 },
   intro: { pathWidth: 100, pathHeight: 44, pathSegments: 120, dot: 7, trackWidth: 1, pageDot: 6, activeDot: 28, inactiveOpacity: 0.35 },
-  chart: { stroke: 2, secondaryStroke: 1.5, ringStroke: 8, fillOpacity: 0.08 },
+  chart: {
+    stroke: 2, secondaryStroke: 1.5, ringStroke: 8, fillOpacity: 0.08,
+    stackHeight: 8, compactStackHeight: 6,
+    hourly: { height: 96, compactHeight: 88, gap: 3, radius: 3, minHeight: 4, emptyHeight: 3 },
+    curve: { height: 110, padding: 8, stroke: 3, markerRadius: 4, haloRadius: 6, currentRadius: 5 },
+  },
   editorial: { maskPadding: 4, titleTravel: 24, ruleHeight: 8, arrowRotation: 45, indexWidth: 28 },
 } as const;
 

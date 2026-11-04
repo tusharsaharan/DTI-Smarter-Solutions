@@ -1,12 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, View } from 'react-native';
 import { Check, ChevronDown, Inbox, Info, X } from 'lucide-react-native';
-import { control, layout, radius, space, useTheme } from '@/theme';
+import { control, layout, motion, radius, space, useTheme } from '@/theme';
 import { Card, Chip, EmptyState, PressableScale, PrivacyCard, Reveal, Screen, SectionHeader, Text } from '@/ui';
 import { FeatureHero, featureEyebrow } from '@/components/FeatureHero';
 import { useAttune } from '@/state/store';
 import { getAttuneNative } from '../../../modules/attune-native';
 import { ago } from '@/lib/format';
+import { appDisplayName } from '@/lib/appDisplayName';
 import { haptic } from '@/lib/haptics';
 import type { RankedNotification, SenderTier } from '@/state/types';
 
@@ -89,10 +90,10 @@ export default function NotifyScreen() {
                 </Text>
               </View>
               <Text variant="caption" tone="tertiary" style={{ marginTop: space[2] }}>
-                {n.app}
+                {appDisplayName(n.app)}
                 {n.conversation ? ` · ${n.conversation}` : ''}
               </Text>
-              <Text variant="body" tone="secondary" numberOfLines={3} style={{ marginTop: space[4] }}>
+              <Text variant="body" tone="secondary" style={{ marginTop: space[4] }}>
                 {n.text}
               </Text>
               {n.reasons.length > 0 && (
@@ -136,10 +137,10 @@ export default function NotifyScreen() {
           <SectionHeader title="Left in place" />
           <Card>
             {originals.slice(0, 8).map((n) => (
-              <View key={n.id} style={{ gap: space[2], paddingVertical: space[5], borderBottomWidth: 1, borderBottomColor: c.border }}>
+              <View key={n.id} style={{ gap: space[2], paddingVertical: space[5], borderBottomWidth: control.hairline, borderBottomColor: c.border }}>
                 <Text variant="calloutMedium">{n.sender}</Text>
-                <Text variant="caption" tone="tertiary">{n.app}{n.conversation ? ` · ${n.conversation}` : ''}</Text>
-                <Text variant="callout" tone="secondary" numberOfLines={2}>{n.text}</Text>
+                <Text variant="caption" tone="tertiary">{appDisplayName(n.app)}{n.conversation ? ` · ${n.conversation}` : ''}</Text>
+                <Text variant="callout" tone="secondary">{n.text}</Text>
                 {n.meaning && <Text variant="caption" tone="tertiary">{n.meaning.intent} · {n.meaning.source}</Text>}
               </View>
             ))}
@@ -160,16 +161,16 @@ export default function NotifyScreen() {
           {groups.map(([app, list], i) => {
             const isOpen = !!open[app];
             return (
-              <View key={app} style={{ borderBottomWidth: i === groups.length - 1 ? 0 : 1, borderBottomColor: c.border }}>
+              <View key={app} style={{ borderBottomWidth: i === groups.length - 1 ? 0 : control.hairline, borderBottomColor: c.border }}>
                 <PressableScale
-                  accessibilityLabel={`${app}, ${list.length} held. ${isOpen ? 'Collapse' : 'Expand'}`}
+                  accessibilityLabel={`${appDisplayName(app)}, ${list.length} held. ${isOpen ? 'Collapse' : 'Expand'}`}
                   accessibilityState={{ expanded: isOpen }}
                   onPress={() => setOpen((p) => ({ ...p, [app]: !p[app] }))}
-                  scaleTo={0.985}
+                  scaleTo={motion.rowPressScale}
                   style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: space[4], gap: space[3] }}
                 >
                   <Text variant="bodyMedium" style={{ flex: 1, minWidth: 0 }}>
-                    {app}
+                    {appDisplayName(app)}
                   </Text>
                   <Text variant="numeral" tone="secondary">
                     {list.length}
@@ -189,7 +190,7 @@ export default function NotifyScreen() {
                             {ago(n.postedAt)}
                           </Text>
                         </Text>
-                        <Text variant="callout" tone="secondary" numberOfLines={2}>
+                        <Text variant="callout" tone="secondary">
                           {n.text}
                         </Text>
                         <Text variant="calloutMedium" color={a.text} onPress={() => feedback(n, true)} accessibilityRole="button" style={{ paddingVertical: space[3], minHeight: control.touchTarget }}>

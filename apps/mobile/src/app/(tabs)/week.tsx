@@ -133,14 +133,14 @@ export default function Week() {
         <SectionHeader title="Through the recorded day" />
         {day && day.hourly.some((h) => h > 0) ? (
           <View style={{ marginTop: space[5], gap: space[4] }}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 96, gap: 3 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: control.chart.hourly.height, gap: control.chart.hourly.gap }}>
               {day.hourly.map((m, h) => (
                 <View
                   key={h}
                   style={{
                     flex: 1,
-                    height: Math.max(3, (m / hourlyMax) * 96),
-                    borderRadius: radius.xs / 2,
+                    height: m > 0 ? Math.max(control.chart.hourly.minHeight, (m / hourlyMax) * control.chart.hourly.height) : control.chart.hourly.emptyHeight,
+                    borderRadius: control.chart.hourly.radius,
                     backgroundColor: h === peakHour ? c.chart.primary : m > 0 ? c.chart.secondary : c.surfacePressed,
                   }}
                 />
@@ -180,7 +180,7 @@ export default function Week() {
                 <Stat value={String(priority)} label="ranked as priority" />
               </View>
               {held > 0 && (
-                <View style={{ flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: space[4], backgroundColor: c.surfacePressed }}>
+                <View style={{ flexDirection: 'row', height: control.chart.compactStackHeight, borderRadius: radius.pill, overflow: 'hidden', marginTop: space[4], backgroundColor: c.surfacePressed }}>
                   <View style={{ flex: held, backgroundColor: ember.soft }} />
                   <View style={{ flex: Math.max(priority, 0.0001), backgroundColor: ember.base }} />
                 </View>

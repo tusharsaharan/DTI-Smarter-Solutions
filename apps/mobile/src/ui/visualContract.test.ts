@@ -80,14 +80,42 @@ describe('Attune light editorial visual contract', () => {
     for (const key of featureOrder) expect(c.feature[key]).toEqual(first);
   });
 
-  it('does not author emoji in app screens and shared controls', () => {
+  it('keeps full message content readable inside the inbox', () => {
+    const inbox = readFileSync('src/app/feature/notify.tsx', 'utf8');
+    expect(inbox).not.toContain('numberOfLines');
+    expect(inbox).toContain('appDisplayName(n.app)');
+    expect(inbox).toContain('appDisplayName(app)');
+  });
+
+  it('reclaims absent header slots and uses compact typography for narrow or enlarged text', () => {
+    const screen = readFileSync('src/ui/Screen.tsx', 'utf8');
+    expect(screen).toContain('{back && (');
+    expect(screen).toContain('{action && (');
+    expect(screen).toContain("width < layout.compactWidth || fontScale > 1 ? 'bodyMedium' : 'title3'");
+    expect(screen).toContain('minWidth: 0');
+  });
+
+  it('shares chart geometry while retaining compact and full-height presentations', () => {
+    expect(control.chart.hourly.compactHeight).toBeLessThan(control.chart.hourly.height);
+    expect(control.chart.hourly.emptyHeight).toBeLessThan(control.chart.hourly.minHeight);
+    expect(control.chart.curve.markerRadius).toBeLessThan(control.chart.curve.haloRadius);
+    const attention = readFileSync('src/app/feature/attention.tsx', 'utf8');
+    const week = readFileSync('src/app/(tabs)/week.tsx', 'utf8');
+    const volume = readFileSync('src/app/feature/volume.tsx', 'utf8');
+    expect(attention).toContain('control.chart.hourly.compactHeight');
+    expect(week).toContain('control.chart.hourly.height');
+    expect(volume).toContain('control.chart.curve.height');
+    expect(volume).not.toMatch(/strokeWidth=\{\d+\}|r=\{\d+\}/);
+  });
+
+  it('does not author emoji anywhere in app source, including design samples', () => {
     const check = (directory: string) => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
         if (entry.isDirectory()) check(path);
-        else if (entry.name.endsWith('.tsx')) expect(readFileSync(path, 'utf8'), path).not.toMatch(/\p{Emoji_Presentation}/u);
+        else if (/\.tsx?$/.test(entry.name)) expect(readFileSync(path, 'utf8'), path).not.toMatch(/\p{Extended_Pictographic}|\p{Emoji_Presentation}|[\uFE0F\u20E3]/u);
       }
     };
-    for (const directory of ['src/app', 'src/components', 'src/ui']) check(directory);
+    check('src');
   });
 });

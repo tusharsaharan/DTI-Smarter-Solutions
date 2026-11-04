@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { View } from 'react-native';
+import { View, useWindowDimensions } from 'react-native';
 import Animated, {
   Extrapolation,
   interpolate,
@@ -40,6 +40,7 @@ const contentWidth = layout.maxContent + layout.gutter * 2;
  */
 export function Screen({ title, eyebrow, eyebrowColor, back, action, bottomInset = 0, hero, children }: ScreenProps) {
   const { c } = useTheme();
+  const { width, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const reduce = useMotionPreference();
   const y = useSharedValue(0);
@@ -112,8 +113,8 @@ export function Screen({ title, eyebrow, eyebrowColor, back, action, bottomInset
             paddingHorizontal: layout.gutter,
           }}
         >
-          <View style={{ width: control.touchTarget }}>
-            {back && (
+          {back && (
+            <View style={{ width: control.touchTarget }}>
               <PressableScale
                 accessibilityLabel="Back"
                 onPress={() => router.back()}
@@ -121,15 +122,17 @@ export function Screen({ title, eyebrow, eyebrowColor, back, action, bottomInset
               >
                 <ChevronLeft size={control.iconLarge} color={c.text} strokeWidth={control.stroke} />
               </PressableScale>
-            )}
-          </View>
-          <Animated.View style={[{ flex: 1, alignItems: 'center' }, compactTitle]}
+            </View>
+          )}
+          <Animated.View style={[{ flex: 1, minWidth: 0, alignItems: back && !action ? 'flex-start' : 'center' }, compactTitle]}
             accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Text variant="title3" numberOfLines={1}>
+            <Text variant={width < layout.compactWidth || fontScale > 1 ? 'bodyMedium' : 'title3'} numberOfLines={1}>
               {title}
             </Text>
           </Animated.View>
-          <View style={{ width: control.touchTarget, alignItems: 'flex-end' }}>{action}</View>
+          {action && (
+            <View style={{ width: control.touchTarget, alignItems: 'flex-end' }}>{action}</View>
+          )}
         </View>
       </View>
     </View>

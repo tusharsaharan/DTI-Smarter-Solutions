@@ -232,8 +232,8 @@ const smooth = (t: number) => {
 
 function CurveView({ width, min, max, now, color }: { width: number; min: number; max: number; now: number | null; color: string }) {
   const { c } = useTheme();
-  const H = 110;
-  const pad = 8;
+  const H = control.chart.curve.height;
+  const pad = control.chart.curve.padding;
   const X = (db: number) => pad + ((db - DB_LO) / (DB_HI - DB_LO)) * (width - pad * 2);
   const Y = (v: number) => H - pad - v * (H - pad * 2);
   const vol = (db: number) => min + (max - min) * smooth((db - 40) / 30);
@@ -248,18 +248,18 @@ function CurveView({ width, min, max, now, color }: { width: number; min: number
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width, min, max]);
 
-  const floor = useMemo(() => Skia.PathBuilder.Make().moveTo(pad, Y(0)).lineTo(width - pad, Y(0)).build(), [width]);
+  const floor = useMemo(() => Skia.PathBuilder.Make().moveTo(pad, H - pad).lineTo(width - pad, H - pad).build(), [width, H, pad]);
 
   return (
     <View accessible accessibilityLabel={`Ringer ranges from ${percent(min)} in quiet rooms to ${percent(max)} in loud places`}>
       <Canvas style={{ width, height: H }}>
-        <Path path={floor} style="stroke" strokeWidth={1} color={c.border} />
-        <Path path={path} style="stroke" strokeWidth={3} color={color} strokeCap="round" strokeJoin="round" />
-        <Circle cx={X(DB_LO)} cy={Y(min)} r={6} color={c.bg} />
-        <Circle cx={X(DB_LO)} cy={Y(min)} r={4} color={color} />
-        <Circle cx={X(DB_HI)} cy={Y(max)} r={6} color={c.bg} />
-        <Circle cx={X(DB_HI)} cy={Y(max)} r={4} color={color} />
-        {now !== null && <Circle cx={X(Math.min(DB_HI, Math.max(DB_LO, now)))} cy={Y(vol(now))} r={5} color={c.text} />}
+        <Path path={floor} style="stroke" strokeWidth={control.hairline} color={c.border} />
+        <Path path={path} style="stroke" strokeWidth={control.chart.curve.stroke} color={color} strokeCap="round" strokeJoin="round" />
+        <Circle cx={X(DB_LO)} cy={Y(min)} r={control.chart.curve.haloRadius} color={c.bg} />
+        <Circle cx={X(DB_LO)} cy={Y(min)} r={control.chart.curve.markerRadius} color={color} />
+        <Circle cx={X(DB_HI)} cy={Y(max)} r={control.chart.curve.haloRadius} color={c.bg} />
+        <Circle cx={X(DB_HI)} cy={Y(max)} r={control.chart.curve.markerRadius} color={color} />
+        {now !== null && <Circle cx={X(Math.min(DB_HI, Math.max(DB_LO, now)))} cy={Y(vol(now))} r={control.chart.curve.currentRadius} color={c.text} />}
       </Canvas>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
         <Text variant="caption" tone="tertiary">
