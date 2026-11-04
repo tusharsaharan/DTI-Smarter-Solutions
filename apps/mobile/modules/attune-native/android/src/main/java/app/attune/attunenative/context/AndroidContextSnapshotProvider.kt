@@ -21,6 +21,7 @@ interface ContextSnapshotProvider {
 
 class AndroidContextSnapshotProvider(private val context: Context) : ContextSnapshotProvider {
   override fun snapshot(): ContextSnapshot {
+    val capturedAtMs = System.currentTimeMillis()
     val warnings = mutableListOf<String>()
     val usageAccess = safe(warnings, "usage_permission_check_failed", false) { hasUsageStatsAccess() }
     val calendarAccess = safe(warnings, "calendar_permission_check_failed", false) { hasCalendarAccess() }
@@ -52,7 +53,7 @@ class AndroidContextSnapshotProvider(private val context: Context) : ContextSnap
     }
 
     return ContextSnapshot(
-      capturedAtMs = System.currentTimeMillis(),
+      capturedAtMs = capturedAtMs,
       // Activity Recognition is declared and reported, but no transition client/classifier is
       // wired yet. Never turn the permission into a fabricated activity value.
       activity = ActivityKind.UNKNOWN,
@@ -113,17 +114,26 @@ class AndroidContextSnapshotProvider(private val context: Context) : ContextSnap
     val now = System.currentTimeMillis()
     val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
       .appendPath(now.toString())
-      .appendPath((now + 60 * 60 * 1000L).toString())
+      .appendPath((now + 1L).toString())
       .build()
-    return runCatching {
-      context.contentResolver.query(
+    return context.contentResolver.query(
         uri,
-        arrayOf(CalendarContract.Instances.EVENT_ID),
-        null,
+        arrayOf(CalendarContract.Instances.BEGIN, CalendarContract.Instances.END,
+          CalendarContract.Instances.ALL_DAY, CalendarContract.Instances.AVAILABILITY,
+          CalendarContract.Instances.STATUS, CalendarContract.Instances.SELF_ATTENDEE_STATUS,
+          CalendarContract.Events.DELETED),
+        "${CalendarContract.Instances.VISIBLE} = 1",
         null,
         null
-      )?.use { cursor -> cursor.moveToFirst() } == true
-    }.getOrDefault(false)
+      )?.use { cursor ->
+        while (cursor.moveToNext()) {
+          if (cursor.isNull(0) || cursor.isNull(1)) continue
+          if (CalendarBusyWindow.isBusyNow(now, cursor.getLong(0), cursor.getLong(1),
+              cursor.getInt(2) != 0, cursor.getInt(3), cursor.getInt(4), cursor.getInt(5),
+              cursor.getInt(6) != 0)) return@use true
+        }
+        false
+      } ?: false
   }
 
   fun hasUsageStatsAccess(): Boolean = runCatching {
@@ -152,15 +162,24 @@ class AndroidContextSnapshotProvider(private val context: Context) : ContextSnap
     val events = manager.queryEvents(now - 15 * 60 * 1000L, now)
     val event = UsageEvents.Event()
     var current: String? = null
+    var resumedAt = 0L
     while (events.hasNextEvent()) {
       events.getNextEvent(event)
       if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
         event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
       ) {
         current = event.packageName?.takeUnless { it.isBlank() }
+        resumedAt = event.timeStamp
+      } else if ((event.eventType == UsageEvents.Event.ACTIVITY_PAUSED ||
+          event.eventType == UsageEvents.Event.ACTIVITY_STOPPED) && event.packageName == current) {
+        current = null
+      } else if (event.eventType == UsageEvents.Event.SCREEN_NON_INTERACTIVE ||
+          event.eventType == UsageEvents.Event.KEYGUARD_SHOWN) {
+        current = null
       }
     }
-    current
+    // A historical app-resume is not proof of an ongoing call or meeting.
+    current?.takeIf { now - resumedAt in 0..120_000L }
   }.getOrNull()
 
   private fun headphonesConnected(): Boolean = runCatching {
