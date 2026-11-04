@@ -6,9 +6,24 @@ plugins {
 group = 'app.attune.attunenative'
 version = '0.1.0'
 
+// This dependency is published on Maven Central, not Google's Maven repository.
+def onnxOfflineRepository = new File(projectDir, '../../../../../models/notification/.maven')
+// The app resolves the library's runtime dependency too, so route this exact group there as well.
+rootProject.allprojects {
+  repositories {
+    def localOnnx = maven { url onnxOfflineRepository }
+    def centralOnnx = maven { url 'https://repo.maven.apache.org/maven2' }
+    exclusiveContent {
+      forRepositories(localOnnx, centralOnnx)
+      filter { includeGroup 'com.microsoft.onnxruntime' }
+    }
+  }
+}
+
 android {
   namespace "app.attune.attunenative"
   defaultConfig {
+    consumerProguardFiles 'consumer-rules.pro'
     versionCode 1
     versionName "0.1.0"
   }
@@ -22,5 +37,9 @@ android {
 
 dependencies {
   implementation 'com.google.code.gson:gson:2.8.9'
+  // Bundled OCR: timetable pictures/PDF pages never need a network model download.
+  implementation 'com.google.mlkit:text-recognition:16.0.1'
+  implementation 'com.google.mediapipe:tasks-vision:0.10.26'
+  implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.23.2'
   testImplementation 'junit:junit:4.13.2'
 }

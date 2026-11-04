@@ -27,11 +27,21 @@ data class NotificationRecord(
   /** Ephemeral display metadata for the live event only; NotificationRecordCodec never persists it. */
   val sender: String? = null,
   val conversation: String? = null,
-  val text: String? = null
+  val text: String? = null,
+  val semanticIntent: String = "UNCERTAIN",
+  val semanticSource: String = "legacy_rules",
+  val semanticConfidence: Float = 0f,
+  val feedbackAtMs: Long? = null
 ) {
-  fun withFeedback(next: NotificationFeedback): NotificationRecord {
+  fun withFeedback(next: NotificationFeedback, atMs: Long = System.currentTimeMillis()): NotificationRecord {
     val nextSenderTier = next.senderTierOverride() ?: senderTier
-    val nextBaseScore = (nextSenderTier.baseScore + urgencyScore).coerceIn(0, 100)
+    val semanticFloor = if (semanticConfidence >= .6f && adaptationReason != "meaning_uncertain_preserve_original") when (semanticIntent) {
+      "SAFETY_CRITICAL" -> 90
+      "TIME_SENSITIVE" -> 65
+      "ACTION_REQUIRED" -> if ("current_action_with_time_constraint" in reasonCodes) 65 else 42
+      else -> 0
+    } else 0
+    val nextBaseScore = maxOf(semanticFloor, (nextSenderTier.baseScore + urgencyScore).coerceIn(0, 100))
     val nextReasons = buildList {
       add("sender_${nextSenderTier.name.lowercase(Locale.ROOT)}")
       addAll(reasonCodes.filterNot { it.startsWith("sender_") })
@@ -51,9 +61,13 @@ data class NotificationRecord(
     return copy(
       senderTier = nextSenderTier,
       baseScore = nextBaseScore,
-      score = (nextBaseScore + next.adjustment).coerceIn(0, 100),
+      score = maxOf(
+        semanticFloor,
+        (nextBaseScore + next.adjustment).coerceIn(0, 100)
+      ),
       reasonCodes = nextReasons,
-      feedback = next
+      feedback = next,
+      feedbackAtMs = atMs
     )
   }
 
@@ -75,7 +89,11 @@ data class NotificationRecord(
     "hasOpenOriginalFallback" to hasOpenOriginalFallback,
     "sender" to sender,
     "conversation" to conversation,
-    "text" to text
+    "text" to text,
+    "semanticIntent" to semanticIntent,
+    "semanticSource" to semanticSource,
+    "semanticConfidence" to semanticConfidence,
+    "feedbackAtMs" to feedbackAtMs
   )
 }
 
@@ -106,6 +124,10 @@ object NotificationRecordCodec {
     put("adaptation", record.adaptation.name)
     put("adaptationReason", record.adaptationReason)
     put("hasOpenOriginalFallback", record.hasOpenOriginalFallback)
+    put("semanticIntent", record.semanticIntent)
+    put("semanticSource", record.semanticSource)
+    put("semanticConfidence", record.semanticConfidence)
+    put("feedbackAtMs", record.feedbackAtMs)
     put("reasonCodes", JSONArray().apply { record.reasonCodes.forEach { put(it) } })
   }
 
@@ -128,7 +150,11 @@ object NotificationRecordCodec {
         NotificationAdaptationAction.valueOf(item.optString("adaptation", "KEEP_ORIGINAL"))
       }.getOrDefault(NotificationAdaptationAction.KEEP_ORIGINAL),
       adaptationReason = item.optString("adaptationReason", "not_evaluated"),
-      hasOpenOriginalFallback = item.optBoolean("hasOpenOriginalFallback", false)
+      hasOpenOriginalFallback = item.optBoolean("hasOpenOriginalFallback", false),
+      semanticIntent = item.optString("semanticIntent", "UNCERTAIN"),
+      semanticSource = item.optString("semanticSource", "legacy_rules"),
+      semanticConfidence = item.optDouble("semanticConfidence", 0.0).toFloat().let { if (it.isFinite()) it.coerceIn(0f, 1f) else 0f },
+      feedbackAtMs = item.optLong("feedbackAtMs", 0L).takeIf { it > 0L }
       // sender, conversation, and text are deliberately not read from disk. Older files are
       // migrated to the derived-only shape on the next write.
     )

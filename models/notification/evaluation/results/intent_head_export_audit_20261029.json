@@ -1,0 +1,37 @@
+{
+  "reason": "Correct source metadata to agent-authored synthetic labels without independent human review. No texts, labels, split families, weights, bias, temperature, gates, supports or benchmark predictions changed. No training or inference repeated.",
+  "original_evaluation_report": "intent_head_cpu_20261029.json",
+  "original_report_sha256": "1fef57f8c001025ce9dfcf67f71af4ab9d8235959da4d46abd8e6154f57f4e2d",
+  "original_head_sha256": "85be7d7547f06549633f8435392e6ac01750da7775cecb60a5a9c711eb4377b5",
+  "current_head_sha256": "4f44b36523eb24bc2a33a2bffe47e1e5126a4346c7fafe20e313446aa1a258ac",
+  "numeric_head_sha256_before": "7ac4f5d8698ac8c7383d16b71c0b9ad50d6804c247c538411e10cd2272375119",
+  "numeric_head_sha256_after": "7ac4f5d8698ac8c7383d16b71c0b9ad50d6804c247c538411e10cd2272375119",
+  "dataset_sha256": "2b5b6f05f8561af48aa2b940b386d6e84c1718236d5ee2258d5775191f745b01",
+  "manifest_sha256": "2a9e8002e2419a21de3f108845a18377155ec46590aef27bee6aa2d0da3fffc6",
+  "frozen_cases_sha256": "f5a98a29c4fb362135178b5f94d0e4872e3192900d5ed500af2d0052a1669401",
+  "posthoc_confidence_metrics_from_saved_predictions": {
+    "training": {
+      "count": 384,
+      "accuracy": 1.0,
+      "nll": 0.026808396707926025,
+      "brier": 0.005631549731523841,
+      "ece_10_bins": 0.02461787035110172
+    },
+    "gate_calibration": {
+      "count": 48,
+      "accuracy": 0.9166666666666666,
+      "nll": 0.2952583822237213,
+      "brier": 0.1359404123489104,
+      "ece_10_bins": 0.06344893484681656
+    },
+    "held_out": {
+      "count": 28,
+      "accuracy": 0.7142857142857143,
+      "nll": 1.002299222580387,
+      "brier": 0.4470840592831727,
+      "ece_10_bins": 0.20601798283617012
+    }
+  },
+  "held_out_tuning": false,
+  "warning": "Temperature calibration on synthetic families generalizes imperfectly. Held-out ECE/NLL describe these 32 synthetic cases, not real-notification accuracy."
+}

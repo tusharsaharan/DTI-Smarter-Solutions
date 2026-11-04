@@ -1,0 +1,28 @@
+{
+  "model": "sentence-transformers/distiluse-base-multilingual-cased-v2",
+  "revision": "bfe45d0732ca50787611c0fe107ba278c7f3f889",
+  "license": "Apache-2.0",
+  "maxLength": 128,
+  "dimensions": 512,
+  "minimumSimilarity": 0.6,
+  "minimumMargin": 0.08,
+  "note": "Frozen multilingual encoder with six-class local linear head. Temperature/confidence/margin/OOD gates calibrated on disjoint synthetic families; abstain outside coverage. Confidence is not established real-notification accuracy.",
+  "files": {
+    "encoder.onnx": {
+      "sha256": "c094704c7833696d9942ea7490311400c21088a75f0b38d2c3e42ff42f918c8d",
+      "bytes": 136911986
+    },
+    "references.json": {
+      "sha256": "c7040dda3c45c55f4bbf4e124c81abba357e6cf71590e5351a49b36a3386fa30",
+      "bytes": 389020
+    },
+    "vocab.txt": {
+      "sha256": "fe0fda7c425b48c516fc8f160d594c8022a0808447475c1a7c6d6479763f310c",
+      "bytes": 995526
+    },
+    "intent_head.json": {
+      "sha256": "4f44b36523eb24bc2a33a2bffe47e1e5126a4346c7fafe20e313446aa1a258ac",
+      "bytes": 578895
+    }
+  }
+}

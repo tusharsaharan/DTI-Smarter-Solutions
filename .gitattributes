@@ -3,3 +3,9 @@
 *.jpg binary
 *.ttf binary
 *.tflite binary
+*.onnx filter=lfs diff=lfs merge=lfs -text
+
+# Preserve checksum-bound model assets and frozen evaluation fixtures byte-for-byte.
+apps/mobile/modules/attune-native/android/src/main/assets/notification_semantics/*.json -text whitespace=cr-at-eol
+apps/mobile/modules/attune-native/android/src/main/assets/notification_semantics/vocab.txt -text
+models/notification/**/*.json -text whitespace=cr-at-eol

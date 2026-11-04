@@ -76,8 +76,20 @@ data class UrgencySignals(
 data class NotificationSignal(
   val senderTier: SenderTier,
   val urgency: UrgencySignals,
-  val feedback: NotificationFeedback = NotificationFeedback.NONE
+  val feedback: NotificationFeedback = NotificationFeedback.NONE,
+  val meaning: NotificationMeaningEvidence? = null,
+  val context: NotificationContextSignal = NotificationContextSignal()
 )
+
+/** Live context reduced to interruption evidence before it reaches ranking. */
+data class NotificationContextSignal(
+  val interruptibilityScore: Int? = null,
+  val calendarBusy: Boolean = false,
+  val reasonCodes: List<String> = emptyList()
+) {
+  val suppressing: Boolean
+    get() = calendarBusy || (interruptibilityScore != null && interruptibilityScore <= 45)
+}
 
 data class NotificationScore(
   val points: Int,
@@ -106,11 +118,39 @@ class NotificationScorer {
         NotificationFeedback.WORK -> add("sender_tag_${signal.feedback.name.lowercase(Locale.ROOT)}")
       }
     }
+    val meaning = signal.meaning
+    val floor = if (meaning != null && !meaning.abstain) when (meaning.intent) {
+      NotificationIntent.SAFETY_CRITICAL -> 90
+      NotificationIntent.TIME_SENSITIVE -> 65
+      NotificationIntent.ACTION_REQUIRED -> if (meaning.urgency.deadline || meaning.urgency.timeSensitive) 65 else 42
+      else -> 0
+    } else 0
+    val semanticBase = maxOf(floor, base)
+    val contextProtected = meaning != null && !meaning.abstain && when (meaning.intent) {
+      NotificationIntent.SAFETY_CRITICAL,
+      NotificationIntent.TIME_SENSITIVE -> true
+      NotificationIntent.ACTION_REQUIRED -> meaning.urgency.deadline || meaning.urgency.timeSensitive
+      else -> false
+    }
+    val contextAdjustment = when {
+      contextProtected -> 0
+      signal.context.suppressing -> -10
+      signal.context.interruptibilityScore != null && signal.context.interruptibilityScore >= 75 -> 4
+      else -> 0
+    }
+    val contextReasons = when {
+      contextAdjustment < 0 -> listOf("current_context_protects_attention") + signal.context.reasonCodes.filter {
+        it in setOf("calendar_busy", "foreground_meeting", "in_vehicle", "foreground_navigation", "headphones_connected")
+      }
+      contextAdjustment > 0 -> listOf("current_context_is_available")
+      else -> emptyList()
+    }
+    val contextBase = (semanticBase + contextAdjustment).coerceIn(0, 100)
     return NotificationScore(
-      points = (base + signal.feedback.adjustment).coerceIn(0, 100),
-      basePoints = base,
+      points = maxOf(floor, (contextBase + signal.feedback.adjustment).coerceIn(0, 100)),
+      basePoints = maxOf(floor, contextBase),
       urgencyScore = signal.urgency.score,
-      reasonCodes = reasons
+      reasonCodes = (reasons + meaning?.reasonCodes.orEmpty() + contextReasons).distinct()
     )
   }
 }
@@ -149,39 +189,31 @@ object LocalNotificationFeedbackResolver {
   fun resolve(
     history: Iterable<NotificationRecord>,
     senderKey: String?,
-    conversationKey: String?
-  ): NotificationFeedback {
-    if (senderKey == null && conversationKey == null) return NotificationFeedback.NONE
+    conversationKey: String?,
+    nowMs: Long? = null
+  ): NotificationFeedback = resolveRecord(history, senderKey, conversationKey, nowMs)?.feedback ?: NotificationFeedback.NONE
+
+  fun resolveRecord(
+    history: Iterable<NotificationRecord>, senderKey: String?, conversationKey: String?, nowMs: Long? = null
+  ): NotificationRecord? {
+    if (senderKey == null && conversationKey == null) return null
 
     val matching = history
       .filter { record ->
-        (conversationKey != null && record.conversationKey == conversationKey) ||
-          (senderKey != null && record.senderKey == senderKey)
+        val sameContext = if (conversationKey != null) record.conversationKey == conversationKey
+          else senderKey != null && record.senderKey == senderKey && record.conversationKey == null
+        sameContext && (nowMs == null || nowMs - (record.feedbackAtMs ?: record.postedAtMs) in 0L..14L * 24 * 60 * 60 * 1000)
       }
       .sortedByDescending { it.postedAtMs }
 
     return matching
-      .map { it.feedback }
-      .firstOrNull { it != NotificationFeedback.NONE && it.senderTierOverride() == null }
-      ?: NotificationFeedback.NONE
+      .firstOrNull { it.feedback != NotificationFeedback.NONE && it.feedback.senderTierOverride() == null }
   }
 }
 
 object UrgencyDetector {
-  private val explicitPattern = Regex("\\b(urgent|asap|immediately|emergency|jaldi|abhi|zaroori)\\b")
-  private val deadlinePattern = Regex("\\b(deadline|due|submit|submission|assignment|exam|test|by \\d{1,2}([:/]\\d{1,2})?)\\b")
-  private val callbackPattern = Regex("\\b(call me|phone me|ring me|callback|call back|baat karo)\\b")
-  private val timePattern = Regex("\\b(today|tonight|tomorrow|aaj|kal|now|ab|\\d{1,2}(:\\d{2})?\\s?(am|pm)?)\\b")
-
-  /** Text is inspected only for the duration of this call and is never returned or persisted. */
-  fun detect(text: CharSequence?): UrgencySignals {
-    val normalized = text?.toString()?.lowercase(Locale.ROOT)?.replace(Regex("\\s+"), " ") ?: return UrgencySignals()
-    return UrgencySignals(
-      explicitUrgency = explicitPattern.containsMatchIn(normalized),
-      deadline = deadlinePattern.containsMatchIn(normalized),
-      directMention = normalized.contains("@"),
-      callbackRequest = callbackPattern.containsMatchIn(normalized),
-      timeSensitive = timePattern.containsMatchIn(normalized)
-    )
-  }
+  /** Compatibility API: uses the same scoped current-message analysis as the live listener. */
+  fun detect(text: CharSequence?): UrgencySignals = CollegeNotificationContext.refine(
+    text?.toString().orEmpty(), NotificationMeaningAnalyzer.analyze(text)
+  ).urgency
 }

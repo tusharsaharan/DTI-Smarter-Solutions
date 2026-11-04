@@ -1,0 +1,6 @@
+# CPU-only recipe tested in the existing local models/.venv. No torch/GPU needed.
+numpy==2.3.4
+scipy==1.16.3
+scikit-learn==1.8.0
+onnxruntime==1.23.2
+transformers==5.17.0

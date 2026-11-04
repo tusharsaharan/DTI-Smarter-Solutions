@@ -7,9 +7,19 @@ import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import app.attune.attunenative.AttuneEventHub
+import app.attune.attunenative.context.AndroidContextSnapshotProvider
+import app.attune.attunenative.context.InterruptibilityClassifier
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 object NotificationListenerRuntime {
   @Volatile var connected: Boolean = false
@@ -22,14 +32,24 @@ class AttuneNotificationListenerService : NotificationListenerService() {
   private val scorer = NotificationScorer()
   private val store by lazy { FileNotificationRecordStore(filesDir.resolve("attune_history.json")) }
   private val digestStore by lazy { FileNotificationDigestStore(filesDir.resolve("attune_notification_digest.json")) }
+  private val semanticModel by lazy { AndroidNotificationSemanticModel(this) }
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private val worker = ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(8))
+  private val sequence = AtomicLong()
+  private val latestWork = ConcurrentHashMap<String, Long>()
 
   override fun onListenerConnected() {
     NotificationListenerRuntime.connected = true
     AttuneEventHub.publish("onNativeStatusChanged", mapOf("notificationListenerConnected" to true))
+    runCatching { worker.execute {
+      semanticModel.prepare()
+      AttuneEventHub.publish("onNativeStatusChanged", mapOf("notificationSemantics" to NotificationSemanticRuntime.toMap()))
+    } }
   }
 
   override fun onListenerDisconnected() {
     NotificationListenerRuntime.connected = false
+    latestWork.clear()
     AttuneEventHub.publish("onNativeStatusChanged", mapOf("notificationListenerConnected" to false))
   }
 
@@ -41,26 +61,81 @@ class AttuneNotificationListenerService : NotificationListenerService() {
 
     if (!NotificationAdaptationSettings.isEnabled(this)) return
 
-    val parsed = NotificationParser.parse(notification, sbn.packageName)
+    val generation = sequence.incrementAndGet()
+    if (latestWork.size >= 256 && !latestWork.containsKey(sbn.key)) latestWork.clear()
+    latestWork[sbn.key] = generation
+    val arrived = SystemClock.elapsedRealtime()
+    runCatching { worker.execute {
+      if (latestWork[sbn.key] != generation || SystemClock.elapsedRealtime() - arrived > 5_000L) return@execute
+      runCatching { rankNotification(sbn, generation, arrived) }.onFailure {
+        // Source remains untouched when processing fails. Never print message text or exceptions.
+        NotificationSemanticRuntime.error = "notification_ranking_failed_preserved_original"
+      }
+    } }.onFailure { NotificationSemanticRuntime.error = "ranking_queue_full_preserved_original" }
+  }
+
+  override fun onNotificationRemoved(sbn: StatusBarNotification) {
+    latestWork.remove(sbn.key)
+  }
+
+  override fun onDestroy() {
+    NotificationListenerRuntime.connected = false
+    latestWork.clear()
+    worker.queue.clear()
+    runCatching { worker.execute { semanticModel.close() } }
+    worker.shutdown()
+    super.onDestroy()
+  }
+
+  private fun rankNotification(sbn: StatusBarNotification, generation: Long, arrived: Long) {
+    val notification = sbn.notification ?: return
+
+    val parsed = NotificationParser.parse(notification, sbn.packageName, sbn.postTime)
     val id = stableNotificationId(sbn.key)
     val history = store.all(500)
     val previous = store.find(id)
+    val contextSnapshot = AndroidContextSnapshotProvider(this).snapshot()
+    val contextDecision = InterruptibilityClassifier().classify(contextSnapshot)
     val senderTier = LocalSenderTierResolver.resolve(
       history = history,
       senderKey = parsed.senderKey,
       conversationKey = parsed.conversationKey
     )
-    val feedback = previous?.feedback?.takeIf { it != NotificationFeedback.NONE }
-      ?: LocalNotificationFeedbackResolver.resolve(
+    val feedbackRecord = previous?.takeIf {
+      it.feedback != NotificationFeedback.NONE && it.senderKey == parsed.senderKey && it.conversationKey == parsed.conversationKey &&
+        sbn.postTime - (it.feedbackAtMs ?: it.postedAtMs) in 0L..14L * 24 * 60 * 60 * 1000
+    }
+      ?: LocalNotificationFeedbackResolver.resolveRecord(
         history = history,
         senderKey = parsed.senderKey,
-        conversationKey = parsed.conversationKey
+        conversationKey = parsed.conversationKey,
+        nowMs = sbn.postTime
       )
+    val feedback = feedbackRecord?.feedback ?: NotificationFeedback.NONE
+    val rules = CollegeNotificationContext.refine(parsed.latestTextForScoring,
+      NotificationMeaningAnalyzer.analyze(parsed.latestTextForScoring, parsed.conversationContext.map { it.text }))
+    val meaning = NotificationSemanticFusion.combine(rules,
+      if (rules.canRefineWithModel) {
+        if (parsed.conversationContext.isEmpty()) {
+          semanticModel.infer(parsed.latestTextForScoring)
+        } else {
+          semanticModel.inferContextual(
+            parsed.latestTextForScoring,
+            parsed.conversationContext.map { it.text }
+          )
+        }
+      } else null)
     val score = scorer.score(
       NotificationSignal(
         senderTier = senderTier,
-        urgency = UrgencyDetector.detect(parsed.textForScoring),
-        feedback = feedback
+        urgency = meaning.urgency,
+        feedback = feedback,
+        meaning = meaning,
+        context = NotificationContextSignal(
+          interruptibilityScore = contextDecision.score,
+          calendarBusy = contextSnapshot.calendarBusy,
+          reasonCodes = contextDecision.reasonCodes
+        )
       )
     )
     val decision = NotificationAdaptationPolicy.decide(
@@ -70,10 +145,16 @@ class AttuneNotificationListenerService : NotificationListenerService() {
         isOngoing = notification.isProtectedFromInterruption(),
         hasContent = parsed.hasDisplayContent,
         hasOpenOriginalFallback = notification.contentIntent != null,
-        canPostAttuneNotification = canPostAttuneNotification()
+        canPostAttuneNotification = canPostAttuneNotification(),
+        interpretationCertain = !meaning.abstain && parsed.latestTextForScoring.isNotBlank()
       )
     )
 
+    // Apply on Android's callback thread, ordered against source updates/removals and disable.
+    mainHandler.post {
+    runCatching {
+    if (!NotificationListenerRuntime.connected || latestWork[sbn.key] != generation ||
+      SystemClock.elapsedRealtime() - arrived > 5_000L || !NotificationAdaptationSettings.isEnabled(this)) return@post
     val outcome = adaptNotification(sbn, notification, parsed, id, score, decision)
     val record = NotificationRecord(
       id = id,
@@ -93,10 +174,16 @@ class AttuneNotificationListenerService : NotificationListenerService() {
       hasOpenOriginalFallback = notification.contentIntent != null,
       sender = parsed.latestMessage?.senderName ?: parsed.displayTitle,
       conversation = parsed.conversationTitle,
-      text = parsed.displayText
+      text = parsed.displayText,
+      semanticIntent = meaning.intent.name,
+      semanticSource = meaning.source,
+      semanticConfidence = meaning.confidence,
+      feedbackAtMs = feedbackRecord?.let { it.feedbackAtMs ?: it.postedAtMs }
     )
     store.upsert(record)
     AttuneEventHub.publish("onNotificationRanked", record.toMap())
+    }.onFailure { NotificationSemanticRuntime.error = "notification_apply_failed_preserved_when_possible" }
+    }
   }
 
   private fun adaptNotification(
@@ -132,7 +219,7 @@ class AttuneNotificationListenerService : NotificationListenerService() {
         if (repostThroughAttuneChannel(sbn, notification, parsed, id, score)) {
           // Cancel only after notify() succeeded. The original PendingIntent remains attached to
           // the Attune copy, which is the safe open-original fallback. Source actions and
-          // RemoteInput are intentionally not copied because forwarding them is not reliable.
+          // RemoteInput are forwarded below through their original PendingIntents.
           cancelNotification(sbn.key)
           digestStore.remove(id)
           decision
@@ -277,6 +364,7 @@ class AttuneNotificationListenerService : NotificationListenerService() {
   }
 
   private fun Notification.isProtectedFromInterruption(): Boolean {
+    if (category in setOf(Notification.CATEGORY_CALL, Notification.CATEGORY_ALARM, Notification.CATEGORY_SYSTEM, Notification.CATEGORY_ERROR)) return true
     val protectedFlags = Notification.FLAG_ONGOING_EVENT or
       Notification.FLAG_FOREGROUND_SERVICE or
       Notification.FLAG_GROUP_SUMMARY or

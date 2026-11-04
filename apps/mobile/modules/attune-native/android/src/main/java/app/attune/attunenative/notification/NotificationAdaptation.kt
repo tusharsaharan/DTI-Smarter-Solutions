@@ -16,7 +16,8 @@ data class NotificationAdaptationInput(
   val isOngoing: Boolean,
   val hasContent: Boolean,
   val hasOpenOriginalFallback: Boolean,
-  val canPostAttuneNotification: Boolean
+  val canPostAttuneNotification: Boolean,
+  val interpretationCertain: Boolean = true
 )
 
 data class NotificationAdaptationDecision(
@@ -38,6 +39,9 @@ object NotificationAdaptationPolicy {
     }
     if (input.isOngoing) {
       return NotificationAdaptationDecision(NotificationAdaptationAction.KEEP_ORIGINAL, "ongoing_notification")
+    }
+    if (!input.interpretationCertain) {
+      return NotificationAdaptationDecision(NotificationAdaptationAction.KEEP_ORIGINAL, "meaning_uncertain_preserve_original")
     }
     if (input.score < LOW_SCORE_THRESHOLD) {
       return NotificationAdaptationDecision(NotificationAdaptationAction.CANCEL_TO_DIGEST, "below_priority_threshold")
@@ -68,7 +72,7 @@ object NotificationAdaptationSettings {
   private const val KEY_ENABLED = "adaptation_enabled"
 
   fun isEnabled(context: Context): Boolean = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-    .getBoolean(KEY_ENABLED, true)
+    .getBoolean(KEY_ENABLED, false)
 
   fun setEnabled(context: Context, enabled: Boolean): Boolean = context
     .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)

@@ -41,10 +41,16 @@ data class ParsedNotification(
   val senderIdentity: String?,
   val senderKey: String?,
   val conversationKey: String?,
+  /** Current body only: title, group name and earlier messages must not add urgency. */
   val textForScoring: String,
   val displayTitle: String,
-  val displayText: String
+  val displayText: String,
+  /** Short-lived, chronological preceding messages; never include this in history/event maps. */
+  val conversationContext: List<ParsedNotificationMessage> = emptyList()
 ) {
+  val latestTextForScoring: String
+    get() = textForScoring
+
   val hasDisplayContent: Boolean
     get() = title.isNotBlank() ||
       text.isNotBlank() ||
@@ -63,8 +69,17 @@ object NotificationParser {
   private const val KEY_MESSAGE_SENDER = "sender"
   private const val KEY_MESSAGE_SENDER_PERSON = "sender_person"
   private const val KEY_IS_GROUP_CONVERSATION = "android.isGroupConversation"
+  private const val MAX_CONTEXT_MESSAGES = 6
+  private const val MAX_CONTEXT_MESSAGE_CHARS = 512
+  private const val MAX_CONTEXT_CHARS = 2_048
+  private const val MAX_CONTEXT_AGE_MS = 15L * 60 * 1_000
+  private const val MAX_FUTURE_SKEW_MS = 5L * 60 * 1_000
 
-  fun parse(notification: Notification, packageName: String? = null): ParsedNotification {
+  fun parse(
+    notification: Notification,
+    packageName: String? = null,
+    receivedAtMs: Long = System.currentTimeMillis()
+  ): ParsedNotification {
     val extras = notification.extras ?: Bundle()
     val shortcutId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       notification.shortcutId
@@ -74,7 +89,8 @@ object NotificationParser {
     return parseExtras(
       extras = extras,
       packageName = packageName,
-      shortcutId = shortcutId
+      shortcutId = shortcutId,
+      receivedAtMs = receivedAtMs
     )
   }
 
@@ -85,7 +101,8 @@ object NotificationParser {
   fun parseExtras(
     extras: Bundle,
     packageName: String? = null,
-    shortcutId: String? = null
+    shortcutId: String? = null,
+    receivedAtMs: Long = System.currentTimeMillis()
   ): ParsedNotification {
     return parseSnapshot(
       snapshot = NotificationExtrasSnapshot(
@@ -98,39 +115,41 @@ object NotificationParser {
         messages = readMessages(extras)
       ),
       packageName = packageName,
-      shortcutId = shortcutId
+      shortcutId = shortcutId,
+      receivedAtMs = receivedAtMs
     )
   }
 
   fun parseSnapshot(
     snapshot: NotificationExtrasSnapshot,
     packageName: String? = null,
-    shortcutId: String? = null
+    shortcutId: String? = null,
+    receivedAtMs: Long? = null
   ): ParsedNotification {
     val title = snapshot.title.orEmpty()
     val text = snapshot.text.orEmpty()
     val bigText = snapshot.bigText
     val conversationTitle = snapshot.conversationTitle
     val isGroupConversation = snapshot.isGroupConversation
-    val messages = snapshot.messages
+    val messages = orderedMessages(snapshot.messages, receivedAtMs)
     val template = snapshot.template.orEmpty()
     val isMessage = messages.isNotEmpty() ||
       template.contains("MessagingStyle", ignoreCase = true) ||
       messages.any { it.senderIdentity != null }
     val latestMessage = messages.lastOrNull()
-    val senderIdentity = latestMessage?.senderIdentity ?: messages.asReversed()
-      .firstOrNull { it.senderIdentity != null }
-      ?.senderIdentity
+    // A missing sender on the new message must not inherit a different author's local tier.
+    val senderIdentity = latestMessage?.senderIdentity?.takeIf { it.isNotBlank() }
     val senderKey = senderIdentity?.let { identityKey("sender", packageName, it) }
-    val conversationMaterial = shortcutId
-      ?: conversationTitle
-      ?: if (isMessage && isGroupConversation == true) "group:${title.ifBlank { "unknown" }}" else null
+    val conversationMaterial = shortcutId?.takeIf { it.isNotBlank() }
+      ?: conversationTitle?.takeIf { it.isNotBlank() }
+      ?: if (isMessage && isGroupConversation == true && title.isNotBlank()) "group:$title" else null
     val conversationKey = conversationMaterial?.let { identityKey("conversation", packageName, it) }
-    val messageText = messages.map { it.text }.filter { it.isNotBlank() }
-    val textForScoring = (listOfNotNull(title, text, bigText, conversationTitle) + messageText)
-      .filter { it.isNotBlank() }
-      .distinct()
-      .joinToString(" ")
+    // EXTRA_TEXT is preferable to an expanded summary which can include the entire thread.
+    // An attachment/empty newest message deliberately stays empty instead of reviving old text.
+    val textForScoring = latestMessage?.text
+      ?: text.takeIf { it.isNotBlank() }
+      ?: bigText.orEmpty()
+    val conversationContext = precedingContext(messages, receivedAtMs)
     val displayTitle = conversationTitle?.takeIf { it.isNotBlank() }
       ?: title.takeIf { it.isNotBlank() }
       ?: latestMessage?.senderName?.takeIf { it.isNotBlank() }
@@ -153,8 +172,57 @@ object NotificationParser {
       conversationKey = conversationKey,
       textForScoring = textForScoring,
       displayTitle = displayTitle,
-      displayText = displayText
+      displayText = displayText,
+      conversationContext = conversationContext
     )
+  }
+
+  private fun orderedMessages(
+    source: List<ParsedNotificationMessage>,
+    receivedAtMs: Long?
+  ): List<ParsedNotificationMessage> {
+    val reference = receivedAtMs?.takeIf { it > 0L }
+    val normalized = source.map { message ->
+      val time = message.timestampMs?.takeIf { value ->
+        value > 0L && (reference == null || value <= reference || value - reference <= MAX_FUTURE_SKEW_MS)
+      }
+      message.copy(
+        timestampMs = time,
+        senderName = message.senderName?.takeIf { it.isNotBlank() },
+        senderIdentity = message.senderIdentity?.takeIf { it.isNotBlank() }
+      )
+    }.withIndex().toList()
+    // Timestamp ties retain the source order. Undated entries never invent chronological recency.
+    val dated = normalized.filter { it.value.timestampMs != null }
+      .sortedWith(compareBy<IndexedValue<ParsedNotificationMessage>> { it.value.timestampMs }.thenBy { it.index })
+    // MessagingStyle source order is the only available ordering for an undated final entry.
+    // Keeping it current is safer than scoring an old dated urgent message in its place.
+    val newest = normalized.lastOrNull()?.takeIf { it.value.timestampMs == null }
+      ?: dated.lastOrNull()
+      ?: return emptyList()
+    val unknown = normalized.filter { it.value.timestampMs == null && it.index != newest.index }
+    return (unknown + dated.filter { it.index != newest.index } + newest).map { it.value }
+  }
+
+  private fun precedingContext(
+    messages: List<ParsedNotificationMessage>,
+    receivedAtMs: Long?
+  ): List<ParsedNotificationMessage> {
+    val latestAt = messages.lastOrNull()?.timestampMs ?: return emptyList()
+    val reference = receivedAtMs?.takeIf { it > 0L } ?: latestAt
+    val candidates = messages.dropLast(1).filter { message ->
+      val at = message.timestampMs
+      at != null && at <= latestAt && latestAt - at <= MAX_CONTEXT_AGE_MS &&
+        (at >= reference || reference - at <= MAX_CONTEXT_AGE_MS) && message.text.isNotBlank()
+    }.takeLast(MAX_CONTEXT_MESSAGES)
+    var remaining = MAX_CONTEXT_CHARS
+    // Allocate the budget newest-first so the nearest reply context survives long older messages.
+    return candidates.asReversed().mapNotNull { message ->
+      if (remaining == 0) return@mapNotNull null
+      val boundedText = message.text.take(minOf(MAX_CONTEXT_MESSAGE_CHARS, remaining))
+      remaining -= boundedText.length
+      message.copy(text = boundedText)
+    }.asReversed()
   }
 
   private fun readMessages(extras: Bundle): List<ParsedNotificationMessage> {
@@ -164,10 +232,10 @@ object NotificationParser {
 
     return rawMessages.mapNotNull { rawMessage ->
       val bundle = rawMessage as? Bundle ?: return@mapNotNull null
-      val messageText = bundle.charSequenceOrNull(KEY_MESSAGE_TEXT)?.takeIf { it.isNotBlank() }
-        ?: return@mapNotNull null
+      // Keep textless attachment messages: dropping the latest one would rescore older content.
+      val messageText = bundle.charSequenceOrNull(KEY_MESSAGE_TEXT).orEmpty()
       val person = readPerson(bundle)
-      val legacySender = bundle.charSequenceOrNull(KEY_MESSAGE_SENDER)
+      val legacySender = bundle.charSequenceOrNull(KEY_MESSAGE_SENDER)?.takeIf { it.isNotBlank() }
       val senderName = person?.name?.toString()?.takeIf { it.isNotBlank() } ?: legacySender
       val senderIdentity = person?.uri?.takeIf { it.isNotBlank() }
         ?: person?.key?.takeIf { it.isNotBlank() }

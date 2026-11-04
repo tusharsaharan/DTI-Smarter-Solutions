@@ -31,6 +31,43 @@ class NotificationRankingTest {
   }
 
   @Test
+  fun currentFocusContextLowersRoutineMeaningButCannotLowerADeadlineFloor() {
+    val routine = scorer.score(
+      NotificationSignal(
+        senderTier = SenderTier.UNKNOWN,
+        urgency = UrgencySignals(),
+        meaning = NotificationMeaningEvidence(
+          intent = NotificationIntent.INFORMATIONAL,
+          urgency = UrgencySignals(),
+          confidence = .8f,
+          abstain = false,
+          reasonCodes = listOf("routine_acknowledgment")
+        ),
+        context = NotificationContextSignal(interruptibilityScore = 20, calendarBusy = true)
+      )
+    )
+    val deadline = scorer.score(
+      NotificationSignal(
+        senderTier = SenderTier.UNKNOWN,
+        urgency = UrgencySignals(deadline = true),
+        meaning = NotificationMeaningEvidence(
+          intent = NotificationIntent.ACTION_REQUIRED,
+          urgency = UrgencySignals(deadline = true),
+          confidence = .8f,
+          abstain = false,
+          reasonCodes = listOf("current_action_with_time_constraint")
+        ),
+        context = NotificationContextSignal(interruptibilityScore = 20, calendarBusy = true)
+      )
+    )
+
+    assertTrue(routine.points < SenderTier.UNKNOWN.baseScore)
+    assertEquals(65, deadline.points)
+    assertTrue("current_context_protects_attention" in routine.reasonCodes)
+    assertFalse("current_context_protects_attention" in deadline.reasonCodes)
+  }
+
+  @Test
   fun explicitNegativeFeedbackLowersScoreWithoutChangingBase() {
     val signal = NotificationSignal(
       senderTier = SenderTier.CLOSE,
