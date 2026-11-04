@@ -26,6 +26,9 @@ ios/
 .env
 .env*.local
 vendor/
+models/notification/.cache/
+models/notification/*.log
+models/notification/.maven/
 .playwright-mcp/
 .DS_Store
 *.tsbuildinfo

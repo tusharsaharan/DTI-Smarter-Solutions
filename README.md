@@ -118,6 +118,7 @@ Attune separates persistent, low-overhead system sensing (written in Kotlin) fro
 
 ### Prerequisites
 
+- **Git LFS**: required for the bundled notification encoder; run `git lfs install` and `git lfs pull` after cloning
 - **Node.js**: `v20.x` or higher
 - **Android Studio & SDK**: Android 14+ (API 34/35) with `ANDROID_HOME` configured
 - **Java**: JDK 17
