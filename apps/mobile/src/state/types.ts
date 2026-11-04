@@ -65,6 +65,7 @@ export interface RankedNotification {
   urgency: number; // 0..1 from NLP
   verdict: 'priority' | 'digest' | 'original';
   reasons: string[];
+  meaning?: { intent: string; source: string; confidence: number };
 }
 
 // ── 2 · Keyboard ──────────────────────────────────────────────────────────────
@@ -94,13 +95,21 @@ export interface AppAttention {
   passiveMin: number;
 }
 
-export type AttentionSource = 'camera' | 'hybrid' | 'sensors' | 'usage';
+export type AttentionSource = 'camera' | 'hybrid' | 'sensors' | 'mixed' | 'usage';
+
+export interface AttentionLiveStatus {
+  label: string;
+  source: AttentionSource;
+  confidence: number;
+  reason: string;
+}
 
 export interface AttentionDay {
   date: string; // YYYY-MM-DD
   screenOnMin: number;
   attendedMin: number;
   glances: number;
+  classifiedMin?: number;
   source: AttentionSource;
   apps: AppAttention[];
   /** 24 buckets, attended minutes per hour. */
@@ -115,4 +124,7 @@ export interface VolumeSample {
   db: number;
   environment: NoiseEnvironment;
   ringVolume: number; // 0..1
+  source?: string;
+  confidence?: number | null;
+  reason?: string;
 }

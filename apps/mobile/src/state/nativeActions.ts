@@ -1,6 +1,6 @@
 import type { FeatureKey } from '@attune/design-tokens';
 import { getAttuneNative } from '../../modules/attune-native';
-import { setState } from './store';
+import { getState, setState } from './store';
 
 /** Keep platform actions in one place so screens never silently pretend a local toggle changed Android. */
 export async function syncNativeFeature(feature: FeatureKey, enabled: boolean): Promise<boolean> {
@@ -23,16 +23,10 @@ export async function syncNativeFeature(feature: FeatureKey, enabled: boolean): 
     return started;
   }
   if (feature === 'focus') {
-    if (enabled) {
-      const context = await native.getInterruptibility();
-      if (context.shouldSuppress === true) {
-        const result = await native.applyDnd(true, true, true);
-        return result.applied === true;
-      }
-      return true;
-    }
-    const result = await native.applyDnd(false, true, true);
-    return result.applied === true || result.reason === 'not_active_no_snapshot';
+    const focus = getState().focus;
+    // Enabling prediction is NOT enabling DND. Native code owns the visible countdown,
+    // fresh revalidation, cancellation and automatic session restoration.
+    return native.configureFocus(enabled, focus?.allowPrioritySenders ?? true, focus?.allowRepeatCallers ?? true);
   }
   // Keyboard selection is deliberately user-mediated through Android settings.
   return true;
@@ -47,6 +41,7 @@ export async function toggleFeature(feature: FeatureKey, enabled: boolean): Prom
   }
   if (!nativeReady) return false;
   setState((state) => ({
+    ...(feature === 'attention' && !enabled ? { attentionLive: null } : {}),
     features: {
       ...state.features,
       [feature]: { ...state.features[feature], enabled, mode: enabled ? state.features[feature].mode : 'off' },

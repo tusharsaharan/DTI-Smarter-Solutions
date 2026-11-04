@@ -1,7 +1,9 @@
 import { AppState, type AppStateStatus } from 'react-native';
 import type { FeatureKey } from '@attune/design-tokens';
 import { getAttuneNative, type AmbientSampleEvent, type NotificationRankedEvent } from '../../modules/attune-native';
-import { getState, setState } from './store';
+import { setState } from './store';
+import { mapAttentionHistory, mapAttentionLive } from './attentionContract';
+import { mapFocusStatus } from './focusContract';
 import {
   normalizeEnvironment,
   normalizeNativeScore,
@@ -9,9 +11,9 @@ import {
   normalizeRingVolume,
   normalizeSenderTier,
   notificationVerdict,
+  notificationMeaning,
 } from './nativeContract';
 import type {
-  AttentionDay,
   ContextSnapshot,
   FeatureMode,
   FeatureStatus,
@@ -97,6 +99,8 @@ export function deriveFeatureStatuses(
 ): Record<FeatureKey, FeatureStatus> {
   const connected = asBoolean(snapshot.notificationListenerConnected) === true;
   const camera = asMap(snapshot.camera);
+  const attentionSensors = asMap(snapshot.attentionSensors);
+  const liveAttention = mapAttentionLive(asMap(snapshot.attention));
   const ambient = asMap(snapshot.ambient);
   const usage = asMap(snapshot.usageWindow);
   const usageReady = permissions.usageAccess === 'granted';
@@ -105,8 +109,10 @@ export function deriveFeatureStatuses(
   const postReady = permissions.postNotifications !== 'denied';
   const notifyReady = notifyAccessReady && connected && postReady;
   const dndReady = permissions.dndPolicy === 'granted';
+  const focus = mapFocusStatus(snapshot.focus);
   const keyboardReady = permissions.keyboardEnabled === 'granted';
   const cameraRunning = asBoolean(camera.running) === true;
+  const sensorsRunning = asBoolean(attentionSensors.running) === true;
   const ambientRunning = asBoolean(ambient.running) === true;
   const usageForeground = asNumber(usage.foregroundMs) ?? 0;
   const contextStatus = asMap(snapshot.context);
@@ -116,14 +122,16 @@ export function deriveFeatureStatuses(
     notify: {
       key: 'notify',
       enabled: enabled.notify,
-      mode: nativeMode(enabled.notify, notifyReady, false),
+      mode: nativeMode(enabled.notify, notifyReady && asMap(snapshot.notificationSemantics).state === 'ready', notifyReady),
       headline: !notifyAccessReady
         ? 'Notification access is required'
         : !postReady
           ? 'Allow Attune to post priority alerts'
           : !connected
             ? 'Access granted · waiting for listener'
-            : 'Listening for real notifications',
+            : asMap(snapshot.notificationSemantics).state === 'ready'
+              ? 'On-device meaning and context ranking active'
+              : 'Context rules active · semantic model loading or unavailable',
       missing: !notifyAccessReady
         ? ['notificationAccess']
         : permissions.postNotifications === 'denied'
@@ -142,22 +150,23 @@ export function deriveFeatureStatuses(
     focus: {
       key: 'focus',
       enabled: enabled.focus,
-      mode: nativeMode(enabled.focus, dndReady && contextAvailable, dndReady),
+      mode: nativeMode(enabled.focus, dndReady && postReady && !!focus &&
+        (focus.entries.length > 0 || focus.feedbackSamples > 0 || contextAvailable), dndReady),
       headline: !dndReady
         ? 'Do Not Disturb access is required'
-        : contextAvailable
-          ? 'Context-aware DND is ready'
-          : 'DND ready · waiting for context signals',
-      missing: dndReady ? [] : ['dndPolicy'],
+        : permissions.postNotifications === 'denied'
+          ? 'Allow notifications to show the countdown'
+          : focus?.reason ?? 'Upload your timetable to learn busy times',
+      missing: !dndReady ? ['dndPolicy'] : permissions.postNotifications === 'denied' ? ['postNotifications'] : [],
     },
     attention: {
       key: 'attention',
       enabled: enabled.attention,
-      mode: nativeMode(enabled.attention, false, usageReady),
+      mode: nativeMode(enabled.attention, cameraRunning && liveAttention.source === 'camera' && liveAttention.confidence > 0, usageReady || sensorsRunning),
       headline: !usageReady
         ? 'Usage access is required'
-        : cameraRunning
-          ? 'Camera frames read locally · gaze model pending'
+        : cameraRunning || sensorsRunning
+          ? `${liveAttention.label} · ${liveAttention.source === 'camera' ? 'camera' : 'sensor estimate'}`
           : usageForeground > 0
             ? 'Usage baseline active · camera optional'
             : 'Waiting for real usage on this phone',
@@ -194,7 +203,9 @@ export function mapNotification(event: NotificationRankedEvent): RankedNotificat
     tier: normalizeSenderTier(event.senderTier),
     urgency,
     verdict,
-    reasons: [...event.reasonCodes, event.adaptationReason].filter((reason): reason is string => Boolean(reason)),
+    meaning: notificationMeaning(event.semanticIntent, event.semanticSource, event.semanticConfidence),
+    reasons: [...event.reasonCodes, event.adaptationReason].filter((reason): reason is string => Boolean(reason))
+      .map((reason) => reason.startsWith('college_current_schedule_') ? 'College schedule update' : reason.replaceAll('_', ' ')),
   };
 }
 
@@ -206,6 +217,9 @@ export function mapAmbientSample(event: AmbientSampleEvent): VolumeSample | null
     db,
     environment: normalizeEnvironment(event.environment),
     ringVolume: normalizeRingVolume(event.ringVolume),
+    source: asString(event.source),
+    confidence: asNumber(event.confidence) ?? null,
+    reason: asString(event.reason),
   };
 }
 
@@ -259,25 +273,6 @@ function mapFocusEvents(records: JsonMap[]): import('./types').FocusEvent[] {
     .slice(0, 100);
 }
 
-function mapAttentionHistory(records: JsonMap[]): AttentionDay[] {
-  return records
-    .map((record) => {
-      const foregroundMs = asNumber(record.foregroundMs) ?? 0;
-      const source: AttentionDay['source'] = asString(record.source) === 'camera' ? 'camera' : 'usage';
-      return {
-        date: new Date(asNumber(record.dayStartMs) ?? Date.now()).toISOString().slice(0, 10),
-        screenOnMin: Math.round(foregroundMs / 60_000),
-        attendedMin: Math.round((asNumber(record.attendedMs) ?? 0) / 60_000),
-        // Native history has glance duration, not a count of glance events.
-        glances: 0,
-        source,
-        apps: [],
-        hourly: Array.from({ length: 24 }, () => 0),
-      };
-    })
-    .sort((a, b) => b.date.localeCompare(a.date));
-}
-
 function upsertById<T extends { id: string }>(items: T[], item: T): T[] {
   const index = items.findIndex((existing) => existing.id === item.id);
   if (index < 0) return [item, ...items].slice(0, 500);
@@ -307,10 +302,15 @@ function applyNativeState(
         db: asNumber(ambientMap.lastDb) ?? 0,
         environment: normalizeEnvironment(ambientMap.environment),
         ringVolume: normalizeRingVolume(ambientMap.ringVolume),
+        source: asString(ambientMap.source),
+        confidence: asNumber(ambientMap.confidence) ?? null,
+        reason: asString(ambientMap.lastReason),
       };
   setState((state) => {
     const permissions = mapPermissionTruth(snapshot, state.permissions);
-    const enabled = Object.fromEntries(FEATURE_KEYS.map((key) => [key, state.features[key].enabled])) as Record<FeatureKey, boolean>;
+    const focus = mapFocusStatus(snapshot.focus);
+    const enabled = Object.fromEntries(FEATURE_KEYS.map((key) => [key,
+      key === 'focus' && focus ? focus.enabled : state.features[key].enabled])) as Record<FeatureKey, boolean>;
     const notifications = records.map(mapNotification).reduce(upsertById, state.notifications);
     const context = mapContext(
       { ...interruptibility, ...asMap(snapshot) },
@@ -325,6 +325,8 @@ function applyNativeState(
         reason: asString(record.reason) ?? '',
         ringVolume: asNumber(record.ringVolume),
         environment: asString(record.environment),
+        source: asString(record.source),
+        confidence: asNumber(record.confidence),
       }))
       .filter((sample): sample is VolumeSample => sample !== null);
     return {
@@ -350,9 +352,11 @@ function applyNativeState(
           },
         };
       })(),
-      dndActive: [2, 3].includes(asNumber(snapshot.dndFilter) ?? -1),
+      dndActive: [2, 3, 4].includes(asNumber(snapshot.dndFilter) ?? -1),
+      focus,
       focusLog: dndHistory === null ? state.focusLog : mapFocusEvents(dndHistory),
       attention: attentionHistory === null ? state.attention : mapAttentionHistory(attentionHistory),
+      attentionLive: mapAttentionLive(asMap(snapshot.attention)),
       volume: nativeAmbient.length > 0
         ? nativeAmbient.reduce(appendVolumeSample, state.volume)
         : latestAmbient
@@ -367,9 +371,12 @@ export function startNativeHydration(): () => void {
   if (!native) return () => {};
 
   let disposed = false;
+  let refreshing = false;
+  let lastAttentionRefresh = 0;
   const subscriptions: NativeSubscription[] = [];
   const refresh = async () => {
-    if (disposed) return;
+    if (disposed || refreshing) return;
+    refreshing = true;
     const [statusResult, contextResult, recordsResult, ambientResult, dndResult, attentionResult] = await Promise.allSettled([
       native.getStatusSnapshot(),
       native.getInterruptibility(),
@@ -378,6 +385,7 @@ export function startNativeHydration(): () => void {
       native.getHistory('dnd', 100),
       native.getHistory('attention', 90),
     ]);
+    refreshing = false;
     if (disposed) return;
     const status = statusResult.status === 'fulfilled' ? asMap(statusResult.value) : {};
     const context = contextResult.status === 'fulfilled' ? asMap(contextResult.value) : {};
@@ -386,10 +394,6 @@ export function startNativeHydration(): () => void {
     const dndHistory = dndResult.status === 'fulfilled' ? historyRecords(dndResult.value, 'records') : null;
     const attentionHistory = attentionResult.status === 'fulfilled' ? historyRecords(attentionResult.value, 'records') : null;
     applyNativeState(status, context, records, ambientHistory, dndHistory, attentionHistory);
-    const focusEnabled = getState().features.focus.enabled;
-    if (focusEnabled && context.shouldSuppress === true) {
-      void native.applyDnd(true, true, true);
-    }
   };
 
   subscriptions.push(native.addListener('onNotificationRanked', (event) => {
@@ -403,6 +407,13 @@ export function startNativeHydration(): () => void {
   }));
   subscriptions.push(native.addListener('onNativeStatusChanged', () => {
     void refresh();
+  }));
+  subscriptions.push(native.addListener('onAttentionFrame', (event) => {
+    setState({ attentionLive: mapAttentionLive(event) });
+    if (Date.now() - lastAttentionRefresh >= 15_000) {
+      lastAttentionRefresh = Date.now();
+      void refresh();
+    }
   }));
 
   const appStateListener = AppState.addEventListener('change', (next: AppStateStatus) => {

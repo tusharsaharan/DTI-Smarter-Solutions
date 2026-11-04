@@ -1,6 +1,7 @@
 package app.attune.attunenative
 
 import android.Manifest
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -13,13 +14,17 @@ import android.provider.Settings
 import app.attune.attunenative.attention.AndroidUsageStatsSource
 import app.attune.attunenative.attention.CameraAttentionRuntime
 import app.attune.attunenative.attention.UsageStatsAttentionClassifier
+import app.attune.attunenative.attention.AttentionMeasurementRecorder
+import app.attune.attunenative.attention.AttentionSensorRuntime
 import app.attune.attunenative.ambient.AmbientRuntime
 import app.attune.attunenative.ambient.AmbientUserSettings
 import app.attune.attunenative.ambient.AmbientUserSettingsStore
 import app.attune.attunenative.context.AndroidContextSnapshotProvider
 import app.attune.attunenative.context.InterruptibilityClassifier
 import app.attune.attunenative.dnd.AndroidDndPolicyController
-import app.attune.attunenative.dnd.DndRequest
+import app.attune.attunenative.focus.FocusRuntime
+import app.attune.attunenative.focus.AndroidTimetableImporter
+import app.attune.attunenative.focus.TimetableEntry
 import app.attune.attunenative.history.NativeHistoryStore
 import app.attune.attunenative.keyboard.AttuneInputMethodService
 import app.attune.attunenative.keyboard.EncryptedTokenLearnerStore
@@ -32,10 +37,19 @@ import app.attune.attunenative.notification.NotificationFeedback
 import app.attune.attunenative.notification.NotificationAdaptationSettings
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.functions.Queues
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
+
+private const val TIMETABLE_REQUEST = 4871
 
 class AttuneNativeModule : Module() {
   private var observerCount = 0
   private val eventHandler = Handler(Looper.getMainLooper())
+  private val usageSource by lazy { AndroidUsageStatsSource(requireContext()) }
+  private val timetablePromise = AtomicReference<Promise?>(null)
+  private val timetableWorker = Executors.newSingleThreadExecutor()
   private val eventListener: (String, Map<String, Any?>) -> Unit = { eventName, payload ->
     eventHandler.post { sendEvent(eventName, payload) }
   }
@@ -125,6 +139,7 @@ class AttuneNativeModule : Module() {
     AsyncFunction("submitNotificationFeedback") { id: String, feedback: String ->
       val parsed = NotificationFeedback.fromWire(feedback) ?: return@AsyncFunction false
       val updated = historyStore().updateNotificationFeedback(id, parsed) ?: return@AsyncFunction false
+      AttuneEventHub.publish("onNativeStatusChanged", mapOf("notificationFeedbackSaved" to true))
       true
     }
 
@@ -148,16 +163,97 @@ class AttuneNativeModule : Module() {
       )
     }
 
-    AsyncFunction("applyDnd") { enabled: Boolean, allowPrioritySenders: Boolean?, allowRepeatCallers: Boolean? ->
-      val result = AndroidDndPolicyController(requireContext()).apply(
-        DndRequest(
-          enabled = enabled,
-          allowPrioritySenders = allowPrioritySenders ?: true,
-          allowRepeatCallers = allowRepeatCallers ?: true
+    AsyncFunction("applyDnd") { enabled: Boolean, priority: Boolean?, repeat: Boolean? ->
+      FocusRuntime.get(requireContext()).manualDnd(enabled, priority, repeat)
+    }
+
+    AsyncFunction("getFocusStatus") {
+      FocusRuntime.get(requireContext()).status()
+    }
+
+    AsyncFunction("configureFocus") { enabled: Boolean, priority: Boolean, repeat: Boolean ->
+      FocusRuntime.get(requireContext()).configure(enabled, priority, repeat)
+    }
+
+    AsyncFunction("skipFocusPrediction") { id: String ->
+      FocusRuntime.get(requireContext()).skipPending(id)
+    }
+
+    AsyncFunction("clearFocusLearning") {
+      FocusRuntime.get(requireContext()).clearLearning()
+    }
+
+    AsyncFunction("saveFocusTimetable") { rows: List<Map<String, Any?>>, validFrom: String, validUntil: String ->
+      require(rows.size in 1..200) { "Review between 1 and 200 timetable entries" }
+      fun minute(row: Map<String, Any?>, key: String): Int {
+        val number = (row[key] as? Number)?.toDouble()
+          ?: throw IllegalArgumentException("Missing $key")
+        require(number.isFinite() && number == number.toInt().toDouble()) { "Invalid $key" }
+        return number.toInt()
+      }
+      val entries = rows.mapIndexed { index, row ->
+        val day = minute(row, "dayOfWeek")
+        val start = minute(row, "startMinute")
+        val end = minute(row, "endMinute")
+        val title = (row["title"] as? String)?.trim().orEmpty()
+        require(day in 1..7 && start in 0..1439 && end in 1..1440 &&
+          end > start && end - start <= 720 && title.isNotEmpty() && title.length <= 160) { "Invalid class time or title" }
+        TimetableEntry(
+          id = "reviewed-$index", dayOfWeek = day, startMinute = start, endMinute = end, title = title,
+          startDate = row["startDate"] as? String, endDate = row["endDate"] as? String
         )
-      )
-      historyStore().recordDnd(enabled, result, System.currentTimeMillis())
-      result.toMap()
+      }
+      FocusRuntime.get(requireContext()).saveTimetable(entries, validFrom, validUntil)
+    }
+
+    AsyncFunction("pickFocusTimetable") { promise: Promise ->
+      if (!timetablePromise.compareAndSet(null, promise)) {
+        promise.reject("ERR_IMPORT_BUSY", "A timetable import is already open", null)
+      } else {
+        val activity = appContext.activityProvider?.currentActivity
+        if (activity == null) {
+          timetablePromise.getAndSet(null)?.reject("ERR_NO_ACTIVITY", "Open Attune to choose a timetable", null)
+        } else {
+          try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+              addCategory(Intent.CATEGORY_OPENABLE)
+              type = "*/*"
+              putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "application/pdf", "text/csv", "text/calendar", "text/plain", "application/octet-stream"))
+              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            @Suppress("DEPRECATION")
+            activity.startActivityForResult(intent, TIMETABLE_REQUEST)
+          } catch (_: Exception) {
+            timetablePromise.getAndSet(null)?.reject("ERR_PICKER_UNAVAILABLE", "No file picker is available on this phone", null)
+          }
+        }
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    OnActivityResult { _, payload ->
+      if (payload.requestCode == TIMETABLE_REQUEST) {
+        val uri = payload.data?.data
+        if (payload.resultCode != Activity.RESULT_OK || uri == null) {
+          timetablePromise.getAndSet(null)?.resolve(mapOf("cancelled" to true))
+        } else {
+          val context = requireContext().applicationContext
+          timetableWorker.execute {
+            try {
+              val result = AndroidTimetableImporter(context).importUri(uri)
+              timetablePromise.getAndSet(null)?.resolve(result)
+            } catch (_: Exception) {
+              timetablePromise.getAndSet(null)?.reject("ERR_TIMETABLE_READ", "Could not read this timetable. Try a clearer image or a CSV file.", null)
+            }
+          }
+        }
+      }
+    }
+
+    OnActivityEntersForeground {
+      val context = appContext.reactContext?.applicationContext
+      if (context != null && !timetableWorker.isShutdown) {
+        timetableWorker.execute { runCatching { FocusRuntime.get(context).evaluate() } }
+      }
     }
 
     AsyncFunction("startService") { service: String ->
@@ -178,6 +274,10 @@ class AttuneNativeModule : Module() {
     OnStopObserving("onNativeStatusChanged") { endObserving() }
 
     OnDestroy {
+      timetablePromise.getAndSet(null)?.resolve(mapOf("cancelled" to true))
+      // Let in-flight OCR finish before its bitmap is recycled; cancellation must not interrupt
+      // Tasks.await while ML Kit may still be using the image. Import never saves or enables DND.
+      timetableWorker.shutdown()
       synchronized(this@AttuneNativeModule) {
         observerCount = 0
         AttuneEventHub.remove(eventListener)
@@ -254,13 +354,13 @@ class AttuneNativeModule : Module() {
     val context = requireContext()
     val dnd = AndroidDndPolicyController(context)
     val contextSnapshot = AndroidContextSnapshotProvider(context).snapshot()
-    val usageSource = AndroidUsageStatsSource(context)
     val usageWindow = usageSource.window()
-    val attention = UsageStatsAttentionClassifier().classify(usageWindow)
+    val attention = AttentionMeasurementRecorder.currentClassification(context, usageWindow)
     val nowMs = System.currentTimeMillis()
-    val dayStartMs = nowMs - Math.floorMod(nowMs, 24L * 60 * 60 * 1000)
-    if (usageWindow.usageAccessGranted && usageWindow.foregroundMs > 0L) {
-      historyStore().upsertAttentionSnapshot(dayStartMs, usageWindow.foregroundMs, attention)
+    val dayStartMs = AttentionMeasurementRecorder.localDayStart(nowMs)
+    val dailyUsage = usageSource.dailyWindow(dayStartMs, nowMs)
+    if (dailyUsage.usageAccessGranted && dailyUsage.status != "usage_stats_unavailable") {
+      historyStore().upsertAttentionSnapshot(dayStartMs, dailyUsage.foregroundMs, UsageStatsAttentionClassifier().classify(dailyUsage))
     }
     val permissions = mapOf(
       "notificationAccess" to NotificationAccessChecker.isEnabled(context),
@@ -281,8 +381,10 @@ class AttuneNativeModule : Module() {
       "permissions" to permissions,
       "notificationAccess" to NotificationAccessChecker.isEnabled(context),
       "notificationListenerConnected" to app.attune.attunenative.notification.NotificationListenerRuntime.connected,
+      "notificationSemantics" to app.attune.attunenative.notification.NotificationSemanticRuntime.toMap(),
       "dndPolicyAccess" to dnd.hasPolicyAccess(),
       "dndFilter" to dnd.currentFilter(),
+      "focus" to FocusRuntime.get(context).status(),
       "usageStatsAccess" to usageWindow.usageAccessGranted,
       "calendarAccess" to contextSnapshot.calendarAccessGranted,
       "calendarBusy" to contextSnapshot.calendarBusy,
@@ -293,12 +395,16 @@ class AttuneNativeModule : Module() {
       "cameraPermission" to hasRuntimePermission(context, Manifest.permission.CAMERA),
       "microphonePermission" to hasRuntimePermission(context, Manifest.permission.RECORD_AUDIO),
       "camera" to CameraAttentionRuntime.status.toMap(),
+      "attentionSensors" to AttentionSensorRuntime.status.toMap(),
       "ambient" to mapOf(
         "running" to AmbientRuntime.running,
         "lastDb" to AmbientRuntime.lastDb,
         "environment" to AmbientRuntime.environment,
         "source" to AmbientRuntime.source,
         "confidence" to AmbientRuntime.confidence,
+        "lastReason" to AmbientRuntime.lastReason,
+        "speechDetected" to AmbientRuntime.speechDetected,
+        "protectedContext" to AmbientRuntime.protectedContext,
         "lastDecision" to AmbientRuntime.lastDecision?.toMap(),
         "error" to AmbientRuntime.error
       ),
@@ -319,7 +425,7 @@ class AttuneNativeModule : Module() {
       ),
       "attention" to attention.toMap(),
       "usageWindow" to mapOf(
-        "foregroundMs" to usageWindow.foregroundMs,
+        "foregroundMs" to dailyUsage.foregroundMs,
         "topPackage" to usageWindow.topPackage,
         "source" to "usage_stats"
       )
@@ -374,8 +480,17 @@ class AttuneNativeModule : Module() {
 
   private fun startService(service: String): Boolean {
     val context = requireContext()
+    if (service.trim().lowercase() == "attention") {
+      // The motion service owns accounting even when camera permission is denied or revoked.
+      val sensors = launchForeground(context, Intent(context, app.attune.attunenative.attention.AttuneAttentionSensorService::class.java))
+      if (!sensors) return false
+      if (hasRuntimePermission(context, Manifest.permission.CAMERA)) {
+        launchForeground(context, Intent(context, app.attune.attunenative.attention.AttuneAttentionCameraService::class.java))
+      }
+      return sensors
+    }
     val intent = when (service.trim().lowercase()) {
-      "attention", "camera" -> {
+      "camera" -> {
         if (!hasRuntimePermission(context, Manifest.permission.CAMERA)) return false
         Intent(context, app.attune.attunenative.attention.AttuneAttentionCameraService::class.java)
       }
@@ -395,7 +510,10 @@ class AttuneNativeModule : Module() {
       }
       else -> return false
     }
-    return runCatching {
+    return launchForeground(context, intent)
+  }
+
+  private fun launchForeground(context: Context, intent: Intent): Boolean = runCatching {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         context.startForegroundService(intent)
       } else {
@@ -403,12 +521,16 @@ class AttuneNativeModule : Module() {
       }
       true
     }.getOrDefault(false)
-  }
 
   private fun stopService(service: String): Boolean {
     val context = requireContext()
+    if (service.trim().lowercase() == "attention") {
+      context.stopService(Intent(context, app.attune.attunenative.attention.AttuneAttentionCameraService::class.java))
+      context.stopService(Intent(context, app.attune.attunenative.attention.AttuneAttentionSensorService::class.java))
+      return true
+    }
     val intent = when (service.trim().lowercase()) {
-      "attention", "camera" -> Intent(context, app.attune.attunenative.attention.AttuneAttentionCameraService::class.java)
+      "camera" -> Intent(context, app.attune.attunenative.attention.AttuneAttentionCameraService::class.java)
       "ambient", "audio", "volume" -> Intent(context, app.attune.attunenative.ambient.AttuneAmbientAudioService::class.java)
       else -> return false
     }

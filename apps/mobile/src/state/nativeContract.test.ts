@@ -6,6 +6,7 @@ import {
   normalizeRingVolume,
   normalizeSenderTier,
   notificationVerdict,
+  notificationMeaning,
   permissionStatusFromNative,
 } from './nativeContract';
 
@@ -40,5 +41,14 @@ describe('native contract normalization', () => {
     expect(notificationVerdict(0.9, 'CANCEL_TO_DIGEST')).toBe('digest');
     expect(notificationVerdict(0.9, 'REPOST_ATTUNE')).toBe('priority');
     expect(notificationVerdict(0.5, 'KEEP_ORIGINAL')).toBe('original');
+    expect(notificationVerdict(0.9, undefined)).toBe('original');
+    expect(notificationVerdict(0.1, 'new_action')).toBe('original');
+  });
+  it('keeps model confidence separate from notification score or measured accuracy', () => {
+    expect(notificationMeaning('TIME_SENSITIVE', 'on_device_semantic_and_context', .8)).toEqual({
+      intent: 'time sensitive', source: 'On-device model + context', confidence: .8,
+    });
+    expect(notificationMeaning('UNKNOWN', 'context_rules', NaN)?.confidence).toBe(0);
+    expect(notificationMeaning(undefined, undefined, .9)).toBeUndefined();
   });
 });

@@ -2,6 +2,8 @@ package app.attune.attunenative.history
 
 import app.attune.attunenative.notification.NotificationRecord
 import app.attune.attunenative.notification.SenderTier
+import app.attune.attunenative.attention.AttentionClassification
+import app.attune.attunenative.attention.AttentionLabel
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +12,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NativeHistoryStoreTest {
+  @Test
+  fun clearingAttentionInvalidatesBufferedSamplesAcrossStoreInstances() {
+    val file = tempFile()
+    try {
+      val store = NativeHistoryStore(file, nowMs = { 100_000L })
+      val generation = NativeHistoryStore.attentionGeneration
+      val gaze = AttentionClassification(AttentionLabel.ATTENDED, .8f, "camera", "on_screen")
+      store.recordAttention(0L, 0L, gaze, 1000L, generation)
+      NativeHistoryStore(file, nowMs = { 100_000L }).clearAttention()
+      assertFalse(store.recordAttention(0L, 0L, gaze, 1000L, generation))
+      assertTrue(store.attentionHistory().isEmpty())
+    } finally { deleteTree(file) }
+  }
+
+  @Test
+  fun liveAttentionNeverRelabelsTheDailyBaselineOrDuplicatesOnRefresh() {
+    val file = tempFile()
+    try {
+      val store = NativeHistoryStore(file, nowMs = { 100_000L })
+      val usage = AttentionClassification(AttentionLabel.USAGE_ONLY, .3f, "usage_stats", "daily")
+      val gaze = AttentionClassification(AttentionLabel.ATTENDED, .8f, "camera", "on_screen")
+      store.upsertAttentionSnapshot(0L, 60_000L, usage)
+      store.recordAttention(0L, 0L, gaze, 2_000L)
+      repeat(3) { store.upsertAttentionSnapshot(0L, 60_000L, gaze) }
+      val day = store.attentionHistory().single()
+      assertEquals(60_000L, day.foregroundMs)
+      assertEquals(2_000L, day.attendedMs)
+      assertEquals(58_000L, day.usageOnlyMs)
+      assertEquals("camera", day.source)
+    } finally { deleteTree(file) }
+  }
+
+  @Test
+  fun sensorEstimateDoesNotTurnMixedHistoryIntoCameraMeasurement() {
+    val file = tempFile()
+    try {
+      val store = NativeHistoryStore(file, nowMs = { 100_000L })
+      store.recordAttention(0L, 0L, AttentionClassification(AttentionLabel.ATTENDED, .8f, "camera", "on_screen"), 1_000L)
+      store.recordAttention(0L, 0L, AttentionClassification(AttentionLabel.ATTENDED, .4f, "sensor_fusion", "interaction"), 1_000L)
+      store.upsertAttentionSnapshot(0L, 30_000L, AttentionClassification(AttentionLabel.USAGE_ONLY, .3f, "usage_stats", "baseline"))
+      assertEquals("mixed", store.attentionHistory().single().source)
+      assertEquals(2_000L, store.attentionHistory().single().attendedMs)
+    } finally { deleteTree(file) }
+  }
+
   @Test
   fun retentionPrunesByAgeAndRowLimit() {
     val file = tempFile()

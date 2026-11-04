@@ -18,6 +18,9 @@ export type NotificationRankedEvent = {
   adaptation?: string;
   adaptationReason?: string;
   hasOpenOriginalFallback?: boolean;
+  semanticIntent?: string;
+  semanticSource?: string;
+  semanticConfidence?: number;
 };
 
 export type AmbientSampleEvent = {
@@ -30,6 +33,8 @@ export type AmbientSampleEvent = {
   environment?: string | null;
   source?: string | null;
   confidence?: number | null;
+  speechDetected?: boolean | null;
+  protectedContext?: boolean | null;
 };
 
 export type NativeHistoryRecord = Record<string, unknown>;
@@ -37,7 +42,7 @@ export type NativeHistoryRecord = Record<string, unknown>;
 type AttuneNativeEvents = {
   onNotificationRanked(event: NotificationRankedEvent): void;
   onAmbientSample(event: AmbientSampleEvent): void;
-  onAttentionFrame(event: { timestampMs: number }): void;
+  onAttentionFrame(event: { timestampMs: number; label?: string; source?: string; confidence?: number; reason?: string }): void;
   onNativeStatusChanged(event: AttuneNativeStatus): void;
 };
 
@@ -61,6 +66,12 @@ export declare class AttuneNativeModule extends NativeModule<AttuneNativeEvents>
   clearHistory(kind?: string): Promise<boolean>;
   getInterruptibility(): Promise<Record<string, unknown>>;
   applyDnd(enabled: boolean, allowPrioritySenders?: boolean, allowRepeatCallers?: boolean): Promise<Record<string, unknown>>;
+  getFocusStatus(): Promise<Record<string, unknown>>;
+  configureFocus(enabled: boolean, allowPrioritySenders: boolean, allowRepeatCallers: boolean): Promise<boolean>;
+  pickFocusTimetable(): Promise<Record<string, unknown>>;
+  saveFocusTimetable(entries: Array<Record<string, unknown>>, validFrom: string, validUntil: string): Promise<Record<string, unknown>>;
+  skipFocusPrediction(id: string): Promise<boolean>;
+  clearFocusLearning(): Promise<boolean>;
   startService(service: string): Promise<boolean>;
   stopService(service: string): Promise<boolean>;
 }

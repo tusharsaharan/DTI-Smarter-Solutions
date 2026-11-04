@@ -31,6 +31,15 @@ export function permissionStatusFromNative(value: unknown): PermissionStatus | u
 
 export function notificationVerdict(score: number, adaptation: unknown): 'priority' | 'digest' | 'original' {
   if (adaptation === 'CANCEL_TO_DIGEST') return 'digest';
-  if (adaptation === 'KEEP_ORIGINAL') return 'original';
-  return score >= 0.6 ? 'priority' : 'digest';
+  if (adaptation === 'REPOST_ATTUNE') return 'priority';
+  return 'original';
+}
+
+export function notificationMeaning(intent: unknown, source: unknown, confidence: unknown) {
+  if (typeof source !== 'string' || source === 'legacy_rules') return undefined;
+  return {
+    intent: typeof intent === 'string' ? intent.replaceAll('_', ' ').toLowerCase() : 'uncertain',
+    source: source === 'on_device_semantic_and_context' ? 'On-device model + context' : 'On-device context rules',
+    confidence: typeof confidence === 'number' && Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+  };
 }

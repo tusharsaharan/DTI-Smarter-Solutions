@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import type { FeatureKey } from '@attune/design-tokens';
+import type { FocusStatus } from './focusContract';
 import type {
   AttentionDay,
+  AttentionLiveStatus,
   ContextSnapshot,
   FeatureStatus,
   FocusEvent,
@@ -27,7 +29,9 @@ export interface AttuneState {
   keyboard: KeyboardStats | null;
   focusLog: FocusEvent[];
   dndActive: boolean;
+  focus: FocusStatus | null;
   attention: AttentionDay[];
+  attentionLive: AttentionLiveStatus | null;
   volume: VolumeSample[];
 }
 
@@ -69,7 +73,9 @@ export const initialState: AttuneState = {
   keyboard: null,
   focusLog: [],
   dndActive: false,
+  focus: null,
   attention: [],
+  attentionLive: null,
   volume: [],
 };
 

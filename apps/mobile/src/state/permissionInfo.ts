@@ -73,7 +73,7 @@ export const permissionList: PermissionInfo[] = [
   {
     key: 'camera',
     title: 'Camera',
-    why: 'Screen time works without it, using sensors. The camera only sharpens accuracy during a short calibration.',
+    why: 'Optional on-device eye and head-direction checks while True Screen Time is enabled. Without camera access, motion sensors and recent interactions provide estimates, not gaze measurements.',
     powers: ['attention'],
     optional: true,
     intent: null,

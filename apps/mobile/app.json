@@ -6,12 +6,12 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "attune",
-    "userInterfaceStyle": "automatic",
-    "backgroundColor": "#0A0A0B",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#E7E6E2",
     "android": {
       "package": "app.attune.phone",
       "adaptiveIcon": {
-        "backgroundColor": "#0A0A0B",
+        "backgroundColor": "#E7E6E2",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -19,12 +19,14 @@
       "predictiveBackGestureEnabled": true
     },
     "plugins": [
+      "./plugins/with-focus-desugaring",
       "expo-router",
       "expo-font",
+      "expo-system-ui",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0A0A0B",
+          "backgroundColor": "#E7E6E2",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }

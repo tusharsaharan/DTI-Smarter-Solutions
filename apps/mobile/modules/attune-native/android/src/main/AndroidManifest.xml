@@ -4,10 +4,13 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
   <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
   <uses-permission android:name="android.permission.READ_CALENDAR" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <!-- Declared for honest permission coverage; activity transitions are not claimed until wired. -->
   <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
   <!-- Wi-Fi SSID reads are best-effort and remain unavailable without runtime location state. -->
@@ -18,6 +21,21 @@
   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
   <application>
+    <receiver android:name="app.attune.attunenative.focus.FocusAlarmReceiver" android:exported="false" />
+    <receiver android:name="app.attune.attunenative.focus.FocusDndChangeReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="android.app.action.INTERRUPTION_FILTER_CHANGED" />
+        <action android:name="android.app.action.NOTIFICATION_POLICY_CHANGED" />
+      </intent-filter>
+    </receiver>
+    <receiver android:name="app.attune.attunenative.focus.FocusRescheduleReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.TIME_SET" />
+        <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+      </intent-filter>
+    </receiver>
     <service
       android:name="app.attune.attunenative.notification.AttuneNotificationListenerService"
       android:exported="true"
@@ -32,6 +50,15 @@
       android:name="app.attune.attunenative.attention.AttuneAttentionCameraService"
       android:exported="false"
       android:foregroundServiceType="camera" />
+
+    <service
+      android:name="app.attune.attunenative.attention.AttuneAttentionSensorService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="User-enabled on-device screen-time measurement using low-rate motion sensors while the screen is unlocked, including when camera permission is denied." />
+    </service>
 
     <service
       android:name="app.attune.attunenative.ambient.AttuneAmbientAudioService"

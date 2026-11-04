@@ -257,7 +257,9 @@ class NativeHistoryStore(
     it.copy(dnd = it.dnd.filterNot { record -> record.id == id })
   }
 
-  fun clearAttention(): Boolean = clear { it.copy(attention = emptyList()) }
+  fun clearAttention(): Boolean = synchronized(lock) {
+    clear { it.copy(attention = emptyList()) }.also { if (it) attentionGeneration += 1 }
+  }
 
   fun deleteAttention(id: String): Boolean = clear {
     it.copy(attention = it.attention.filterNot { record -> record.id == id })
@@ -268,6 +270,7 @@ class NativeHistoryStore(
       if (file.exists() && !file.delete()) return@runCatching false
       deleteIfPresent(temporaryFile())
       deleteCorruptSiblings()
+      attentionGeneration += 1
       true
     }.getOrDefault(false)
   }
@@ -344,11 +347,13 @@ class NativeHistoryStore(
     dayStartMs: Long,
     foregroundMs: Long,
     classification: AttentionClassification,
-    durationMs: Long
+    durationMs: Long,
+    expectedGeneration: Long? = null
   ): Boolean {
     if (dayStartMs < 0L || durationMs <= 0L) return false
     val safeDuration = durationMs.coerceAtMost(MAX_INTERVAL_MS)
     return synchronized(lock) {
+      if (expectedGeneration != null && expectedGeneration != attentionGeneration) return@synchronized false
       val envelope = readEnvelope()
       val existing = envelope.attention.firstOrNull { it.dayStartMs == dayStartMs }
       val base = existing ?: AttentionHistoryRecord(
@@ -372,7 +377,7 @@ class NativeHistoryStore(
         usageOnlyMs = base.usageOnlyMs + if (classification.label.name == "USAGE_ONLY") safeDuration else 0L,
         notInUseMs = base.notInUseMs + if (classification.label.name == "NOT_IN_USE") safeDuration else 0L,
         unknownMs = base.unknownMs + if (classification.label.name == "UNKNOWN") safeDuration else 0L,
-        source = classification.source.take(64),
+        source = attentionSource(base.source, classification.source),
         confidence = classification.confidence.coerceIn(0f, 1f)
       )
       val next = upsert<AttentionHistoryRecord>(envelope.attention, updated, AttentionHistoryRecord::id)
@@ -382,8 +387,8 @@ class NativeHistoryStore(
 
   /**
    * Persists a usage-statistics aggregate without treating every UI refresh as new attention
-   * time. The platform source is a rolling/aggregate window, so the largest observed bucket is
-   * retained and exposed with its low-fidelity source label.
+   * time. This accepts a daily platform baseline only; a live gaze result must never label
+   * historical foreground time. Actual attention is added exclusively by recordAttention.
    */
   fun upsertAttentionSnapshot(
     dayStartMs: Long,
@@ -410,14 +415,7 @@ class NativeHistoryStore(
       )
       val updated = base.copy(
         foregroundMs = maxOf(base.foregroundMs, observed),
-        attendedMs = maxOf(base.attendedMs, if (classification.label.name == "ATTENDED") observed else 0L),
-        glanceMs = maxOf(base.glanceMs, if (classification.label.name == "GLANCE") observed else 0L),
-        passiveMs = maxOf(base.passiveMs, if (classification.label.name == "PASSIVE") observed else 0L),
-        usageOnlyMs = maxOf(base.usageOnlyMs, if (classification.label.name == "USAGE_ONLY") observed else 0L),
-        notInUseMs = maxOf(base.notInUseMs, if (classification.label.name == "NOT_IN_USE") observed else 0L),
-        unknownMs = maxOf(base.unknownMs, if (classification.label.name == "UNKNOWN") observed else 0L),
-        source = classification.source.take(64),
-        confidence = classification.confidence.coerceIn(0f, 1f)
+        usageOnlyMs = (maxOf(base.foregroundMs, observed) - base.attendedMs - base.glanceMs - base.passiveMs - base.unknownMs).coerceAtLeast(0L)
       )
       val next = upsert<AttentionHistoryRecord>(envelope.attention, updated, AttentionHistoryRecord::id)
       writeEnvelope(envelope.copy(attention = next.prune(retention.attentionMaxRows, retention.attentionRetentionMs, nowMs()) { it.dayStartMs }))
@@ -426,6 +424,14 @@ class NativeHistoryStore(
 
   private fun clear(transform: (HistoryEnvelope) -> HistoryEnvelope): Boolean = synchronized(lock) {
     writeEnvelope(transform(readEnvelope()))
+  }
+
+  private fun attentionSource(existing: String, next: String): String {
+    val measured = setOf("camera", "sensor_fusion", "interaction", "mixed")
+    if (next !in measured) return existing
+    if (existing !in measured) return next
+    if (existing == next) return existing
+    return "mixed"
   }
 
   private fun migrateLegacyNotificationFile() = synchronized(lock) {
@@ -522,7 +528,9 @@ class NativeHistoryStore(
     )
   }
 
-  private companion object {
+  companion object {
+    @Volatile var attentionGeneration: Long = 0L
+      private set
     const val SCHEMA_VERSION = 1
     const val MAX_INTERVAL_MS = 24L * 60 * 60 * 1000
     const val MAX_DAY_MS = 7L * 24 * 60 * 60 * 1000
@@ -554,6 +562,10 @@ private class NotificationRecordJsonAdapter : JsonSerializer<NotificationRecord>
     addProperty("adaptation", source.adaptation.name)
     addProperty("adaptationReason", source.adaptationReason)
     addProperty("hasOpenOriginalFallback", source.hasOpenOriginalFallback)
+    addProperty("semanticIntent", source.semanticIntent)
+    addProperty("semanticSource", source.semanticSource)
+    addProperty("semanticConfidence", source.semanticConfidence)
+    source.feedbackAtMs?.let { addProperty("feedbackAtMs", it) }
     add("reasonCodes", context.serialize(source.reasonCodes))
   }
 
@@ -580,7 +592,11 @@ private class NotificationRecordJsonAdapter : JsonSerializer<NotificationRecord>
       isMessage = source.get("isMessage")?.asBoolean ?: false,
       adaptation = enumOrDefault(source.get("adaptation")?.asString, NotificationAdaptationAction.KEEP_ORIGINAL),
       adaptationReason = source.get("adaptationReason")?.asString ?: "not_evaluated",
-      hasOpenOriginalFallback = source.get("hasOpenOriginalFallback")?.asBoolean ?: false
+      hasOpenOriginalFallback = source.get("hasOpenOriginalFallback")?.asBoolean ?: false,
+      semanticIntent = source.get("semanticIntent")?.asString ?: "UNCERTAIN",
+      semanticSource = source.get("semanticSource")?.asString ?: "legacy_rules",
+      semanticConfidence = (source.get("semanticConfidence")?.asFloat ?: 0f).let { if (it.isFinite()) it.coerceIn(0f, 1f) else 0f },
+      feedbackAtMs = source.get("feedbackAtMs")?.asLong?.takeIf { it > 0L }
     )
   }
 
