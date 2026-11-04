@@ -1,11 +1,10 @@
 import { View } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowUpRight } from 'lucide-react-native';
-import { features, radius, space, useTheme, type FeatureKey } from '@/theme';
+import { control, features, layout, motion, radius, space, useTheme, type FeatureKey } from '@/theme';
 import { useAttune } from '@/state/store';
 import type { FeatureMode } from '@/state/types';
 import { Text } from '@/ui/Text';
-import { FeatureIcon } from '@/ui/FeatureIcon';
 import { PressableScale } from '@/ui/PressableScale';
 
 const modeLabel: Record<FeatureMode, string> = {
@@ -35,47 +34,29 @@ export function FeatureTile({ feature: key, variant = 'compact', detail }: Featu
     <PressableScale
       accessibilityLabel={`${meta.name}. ${status.headline}. ${modeLabel[status.mode]}. Opens ${meta.name}.`}
       onPress={() => router.push(`/feature/${key}` as never)}
+      scaleTo={motion.rowPressScale}
       style={{
-        flex: wide ? undefined : 1,
-        minHeight: wide ? 168 : 176,
-        borderRadius: radius.lg,
-        backgroundColor: c.surface,
-        borderWidth: 1,
-        borderColor: c.border,
-        padding: space[5],
-        justifyContent: 'space-between',
-        overflow: 'hidden',
+        minHeight: wide ? control.feature.wideHeight : control.touchTarget,
+        borderRadius: wide ? radius.lg : 0,
+        backgroundColor: wide ? c.surface : 'transparent',
+        borderWidth: wide ? control.hairline : 0,
+        borderBottomWidth: control.hairline,
+        borderColor: wide ? c.border : c.borderStrong,
+        padding: wide ? layout.cardPadding : 0,
+        paddingVertical: wide ? layout.cardPadding : space[6],
+        gap: space[5],
       }}
     >
-      {/* accent hairline */}
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: space[5],
-          right: space[5],
-          height: 2,
-          borderBottomLeftRadius: 2,
-          borderBottomRightRadius: 2,
-          backgroundColor: live ? accent.base : c.border,
-        }}
-      />
-
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <FeatureIcon feature={key} size={40} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-          <Text variant="numeral" tone="tertiary">
-            {index}
-          </Text>
-          {wide && <ArrowUpRight size={18} color={c.textTertiary} strokeWidth={1.9} />}
+        <View style={{ flexDirection: 'row', flex: 1, alignItems: 'center', gap: space[3] }}>
+          <Text variant="numeral" tone="tertiary">{index}</Text>
+          <Text variant="overline" uppercase color={live ? accent.text : c.textTertiary} style={{ flexShrink: 1 }}>{meta.short}</Text>
         </View>
+        <ArrowUpRight size={control.iconSmall} color={c.textSecondary} strokeWidth={control.stroke} />
       </View>
 
-      <View style={{ gap: space[1], marginTop: space[5] }}>
-        <Text variant="overline" uppercase color={live ? accent.text : c.textTertiary}>
-          {meta.short}
-        </Text>
-        <Text variant={wide ? 'title1' : 'title3'} numberOfLines={wide ? 2 : 3} tone={live ? 'primary' : 'secondary'}>
+      <View style={{ gap: space[2] }}>
+        <Text variant={wide ? 'title1' : 'title2'} tone={live ? 'primary' : 'secondary'}>
           {status.headline}
         </Text>
         {wide && detail ? (
@@ -86,10 +67,10 @@ export function FeatureTile({ feature: key, variant = 'compact', detail }: Featu
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[2] }}>
           <View
             style={{
-              width: 6,
-              height: 6,
-              borderRadius: 3,
-              backgroundColor: live ? accent.base : c.textTertiary,
+              width: control.dot,
+              height: control.dot,
+              borderRadius: radius.pill,
+              backgroundColor: live ? accent.text : c.textTertiary,
               opacity: status.mode === 'reduced' ? 0.55 : 1,
             }}
           />

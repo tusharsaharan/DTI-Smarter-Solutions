@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { View, useWindowDimensions } from 'react-native';
 import { BarChart3, Eye, Moon } from 'lucide-react-native';
-import { fonts, radius, space, useTheme } from '@/theme';
+import { control, layout, radius, space, useTheme } from '@/theme';
 import { useAttune } from '@/state/store';
 import { minutes, percent } from '@/lib/format';
 import { Screen } from '@/ui/Screen';
@@ -11,6 +11,7 @@ import { Ring } from '@/ui/Ring';
 import { SectionHeader, EmptyState } from '@/ui/Section';
 import { TAB_BAR_SPACE } from '@/components/TabBar';
 import type { FocusEvent, VolumeSample } from '@/state/types';
+import { numeralVariant, numeralWidth } from '@/ui/numeralVariant';
 
 /** Minutes the phone spent in Do Not Disturb, from the on/off log. */
 function dndMinutes(log: FocusEvent[], active: boolean, now: number): number {
@@ -35,9 +36,13 @@ function volumeChanges(v: VolumeSample[]): number {
 }
 
 function Stat({ value, label, color }: { value: string; label: string; color?: string }) {
+  const { width, fontScale } = useWindowDimensions();
+  const available = Math.min(width, layout.maxContent + layout.gutter * 2) - layout.gutter * 2;
+  const minWidth = Math.min(available, Math.max(space[10] * 2, numeralWidth(value, fontScale)));
+  const [measured, setMeasured] = useState(0);
   return (
-    <View style={{ flex: 1, gap: space[1] }}>
-      <Text style={{ fontFamily: fonts.mono, fontSize: 34, lineHeight: 38, letterSpacing: -1.2 }} color={color} allowFontScaling={false}>
+    <View onLayout={(event) => setMeasured(event.nativeEvent.layout.width)} style={{ flex: 1, minWidth, gap: space[3] }}>
+      <Text variant={numeralVariant(value, measured || minWidth, fontScale, 'stat')} color={color} tabular>
         {value}
       </Text>
       <Text variant="callout" tone="secondary">
@@ -49,7 +54,7 @@ function Stat({ value, label, color }: { value: string; label: string; color?: s
 
 function Hairline() {
   const { c } = useTheme();
-  return <View style={{ height: 1, backgroundColor: c.border, marginVertical: space[5] }} />;
+  return <View style={{ height: control.hairline, backgroundColor: c.border, marginVertical: space[6] }} />;
 }
 
 export default function Week() {
@@ -63,7 +68,7 @@ export default function Week() {
   const [now] = useState(() => Date.now());
 
   const day = attention.length ? attention[0] : null;
-  const hasGazeData = day?.source === 'camera' || day?.source === 'hybrid' || day?.source === 'sensors';
+  const hasAttentionData = !!day && day.source !== 'usage';
   const sky = feature('attention');
   const ember = feature('notify');
   const mint = feature('focus');
@@ -81,52 +86,53 @@ export default function Week() {
   const hourLabel = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'am' : 'pm'}`;
 
   return (
-    <Screen title="Your day, kindly" eyebrow="Care" bottomInset={TAB_BAR_SPACE}>
+    <Screen title="A little perspective" eyebrow="Care" bottomInset={TAB_BAR_SPACE}>
+      <Text variant="callout" tone="secondary">Attention uses the latest recorded day. Other totals cover the records saved on this phone.</Text>
       {/* Attention */}
       <Reveal index={0}>
         {day && day.screenOnMin > 0 ? (
-          <View style={{ gap: space[5] }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[5] }}>
+          <View style={{ gap: space[6] }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[6] }}>
               <Ring
-                size={132}
-                stroke={12}
-                progress={day.attendedMin / day.screenOnMin}
-                color={sky.base}
+                size={space[10] * 2}
+                stroke={space[3]}
+                progress={(hasAttentionData ? day.attendedMin : day.screenOnMin) / day.screenOnMin}
+                color={c.chart.primary}
                 ghost={1}
                 ghostColor={c.borderStrong}
               >
-                <Text style={{ fontFamily: fonts.mono, fontSize: 24, letterSpacing: -0.8 }} allowFontScaling={false}>
-                  {percent((hasGazeData ? day.attendedMin : day.screenOnMin) / day.screenOnMin)}
+                <Text variant="statCompact" tabular allowFontScaling={false}>
+                  {percent((hasAttentionData ? day.attendedMin : day.screenOnMin) / day.screenOnMin)}
                 </Text>
                 <Text variant="caption" tone="tertiary">
-                  {hasGazeData ? 'attended' : 'foreground'}
+                  {hasAttentionData ? (day.source === 'camera' ? 'observed' : 'estimated') : 'foreground'}
                 </Text>
               </Ring>
-              <View style={{ flex: 1, gap: space[2] }}>
-                 <Text variant="title2">{hasGazeData ? `You looked at your phone for ${minutes(day.attendedMin)}.` : `Android foreground time was ${minutes(day.screenOnMin)}.`}</Text>
-                 <Text variant="callout" tone="secondary">
-                   {hasGazeData ? `The other ${minutes(Math.max(0, day.screenOnMin - day.attendedMin))} was the screen being on.` : 'This is a usage baseline, not a gaze measurement.'}
+              <View style={{ flex: 1, minWidth: space[9] * 5, gap: space[3] }}>
+                <Text variant="story">{hasAttentionData ? `Estimated attention: ${minutes(day.attendedMin)}.` : `Android foreground time was ${minutes(day.screenOnMin)}.`}</Text>
+                <Text variant="callout" tone="secondary">
+                  {hasAttentionData ? 'Only sampled portions of the day are classified. Remaining foreground time can include unobserved use.' : 'This is a usage baseline, not a gaze measurement.'}
                 </Text>
               </View>
             </View>
             <Text variant="caption" tone="tertiary">
-              {hasGazeData ? 'Measured with on-device attention signals, on this phone only.' : 'Android foreground time only; no gaze measurement is claimed.'}
+              {hasAttentionData ? (day.source === 'camera' ? 'On-device iris and head-direction observations; accuracy varies with lighting and position.' : 'Includes motion and interaction estimates. Sensors cannot measure gaze.') : 'Android foreground time only; no gaze measurement is claimed.'}
             </Text>
           </View>
         ) : (
           <EmptyState
-            icon={<Eye size={22} color={sky.base} strokeWidth={1.9} />}
+            icon={<Eye size={control.iconLarge} color={sky.text} strokeWidth={control.stroke} />}
             title="No attention data yet"
-            body="Once True Screen Time has a day of data, you will see how much of your screen time was really you looking."
+            body="Enable True Screen Time to compare Android foreground time with camera observations or sensor estimates. Unobserved time stays unclassified."
           />
         )}
       </Reveal>
 
       {/* Hourly */}
       <Reveal index={1}>
-        <SectionHeader title="When you were looking" />
+        <SectionHeader title="Through the recorded day" />
         {day && day.hourly.some((h) => h > 0) ? (
-          <View style={{ marginTop: space[4], gap: space[3] }}>
+          <View style={{ marginTop: space[5], gap: space[4] }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 96, gap: 3 }}>
               {day.hourly.map((m, h) => (
                 <View
@@ -135,7 +141,7 @@ export default function Week() {
                     flex: 1,
                     height: Math.max(3, (m / hourlyMax) * 96),
                     borderRadius: radius.xs / 2,
-                    backgroundColor: h === peakHour ? sky.base : m > 0 ? sky.soft : c.surfacePressed,
+                    backgroundColor: h === peakHour ? c.chart.primary : m > 0 ? c.chart.secondary : c.surfacePressed,
                   }}
                 />
               ))}
@@ -151,27 +157,27 @@ export default function Week() {
               </Text>
             </View>
             <Text variant="callout" tone="secondary">
-              Your busiest hour was {hourLabel(peakHour)}, with {minutes(day.hourly[peakHour])} of real attention.
+              Busiest recorded hour: {hourLabel(peakHour)}, with {minutes(day.hourly[peakHour])} of {hasAttentionData ? 'observed or estimated attention' : 'Android foreground time'}.
             </Text>
           </View>
         ) : (
           <EmptyState
-            icon={<BarChart3 size={22} color={c.textTertiary} strokeWidth={1.9} />}
+            icon={<BarChart3 size={control.iconLarge} color={c.textTertiary} strokeWidth={control.stroke} />}
             title="Nothing to chart yet"
-            body="Hour-by-hour attention appears here after your first day."
+            body="Hourly foreground time, observations or estimates appear here as they are recorded."
           />
         )}
       </Reveal>
 
       {/* Protected */}
       <Reveal index={2}>
-        <SectionHeader title="What Attune held back" />
-        <View style={{ marginTop: space[4] }}>
+        <SectionHeader title="Recorded notifications" />
+        <View style={{ marginTop: space[5] }}>
           {notifications.length > 0 ? (
             <>
-              <View style={{ flexDirection: 'row', gap: space[4] }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[5] }}>
                 <Stat value={String(held)} label="held for later" color={ember.text} />
-                <Stat value={String(priority)} label="let through as priority" />
+                <Stat value={String(priority)} label="ranked as priority" />
               </View>
               {held > 0 && (
                 <View style={{ flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: space[4], backgroundColor: c.surfacePressed }}>
@@ -192,26 +198,26 @@ export default function Week() {
       <Reveal index={3}>
         <Hairline />
         {focusLog.length > 0 && dnd > 0 ? (
-          <View style={{ flexDirection: 'row', gap: space[4] }}>
-            <Stat value={minutes(dnd)} label="of quiet, on its own" color={mint.text} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[5] }}>
+             <Stat value={minutes(dnd)} label="logged in DND" color={mint.text} />
             <Stat value={String(letThrough)} label={letThrough === 1 ? 'call let through' : 'calls let through'} />
           </View>
         ) : (
           <EmptyState
-            icon={<Moon size={22} color={mint.base} strokeWidth={1.9} />}
+            icon={<Moon size={control.iconLarge} color={mint.text} strokeWidth={control.stroke} />}
             title="No quiet time logged"
-            body="Smart Focus turns Do Not Disturb on and off for you. The minutes it protects will add up here."
+            body="Smart Focus records the DND sessions it owns. Logged durations will appear here."
           />
         )}
       </Reveal>
 
       <Reveal index={4}>
         <Hairline />
-        <View style={{ flexDirection: 'row', gap: space[4] }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[5] }}>
           {volume.length > 1 ? (
-            <Stat value={String(adaptations)} label="ringer adjustments to your surroundings" color={honey.text} />
+            <Stat value={String(adaptations)} label="recorded ringer changes" color={honey.text} />
           ) : (
-            <View style={{ flex: 1, gap: space[1] }}>
+            <View style={{ flex: 1, minWidth: 0, gap: space[3] }}>
               <Text variant="title3">No volume changes yet</Text>
               <Text variant="callout" tone="secondary">
                 Ambient Volume will log each time your ringer adapts to the room.
@@ -224,13 +230,13 @@ export default function Week() {
       <Reveal index={5}>
         <Hairline />
         {keyboard ? (
-          <View style={{ flexDirection: 'row', gap: space[4] }}>
-            <Stat value={String(keyboard.correctionsAvoided)} label="typos you did not have to fix" color={iris.text} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[5] }}>
+            <Stat value={String(keyboard.correctionsAvoided)} label="corrections avoided" color={iris.text} />
             <Stat value={String(keyboard.keystrokesSaved)} label="keystrokes saved" />
           </View>
         ) : (
-          <View style={{ gap: space[1] }}>
-            <Text variant="title3">The keyboard is still learning you</Text>
+          <View style={{ gap: space[3] }}>
+            <Text variant="title3">No keyboard totals yet</Text>
             <Text variant="callout" tone="secondary">
               Corrections avoided and keystrokes saved show up once you have typed with Attune Keyboard.
             </Text>

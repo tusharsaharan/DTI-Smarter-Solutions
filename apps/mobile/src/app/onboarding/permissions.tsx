@@ -1,19 +1,21 @@
 import { useState } from 'react';
-import { View } from 'react-native';
-import Animated, { FadeInRight, FadeOutLeft, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { ScrollView, View } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
-import { layout, motion, radius, space, useTheme } from '@/theme';
+import { control, layout, motion, radius, space, useTheme } from '@/theme';
 import { Button, Card, FeatureIcon, PressableScale, Text } from '@/ui';
 import { haptic } from '@/lib/haptics';
 import { completeOnboarding } from '@/state/persist';
 import { openPermissionSettings, permissionList } from '@/state/permissionInfo';
+import { useMotionPreference } from '@/ui/useMotionPreference';
 
 const FEATURE_NAMES = { notify: 'Inbox', keyboard: 'Keyboard', focus: 'Focus', attention: 'Screen time', volume: 'Volume' } as const;
 
 export default function Permissions() {
   const { c } = useTheme();
+  const reduced = useMotionPreference();
   const insets = useSafeAreaInsets();
   const [i, setI] = useState(0);
   const total = permissionList.length;
@@ -29,16 +31,16 @@ export default function Permissions() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[5] }}>
-      <View style={{ paddingHorizontal: layout.gutter - 6, flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+      <View style={{ width: '100%', maxWidth: layout.maxContent + layout.gutter * 2, alignSelf: 'center', paddingHorizontal: layout.gutter, flexDirection: 'row', alignItems: 'center', gap: space[4] }}>
         <PressableScale
           accessibilityLabel="Back"
           onPress={() => (i > 0 ? setI(i - 1) : router.back())}
-          style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface }}
+          style={{ width: control.touchTarget, height: control.touchTarget, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface }}
         >
-          <ChevronLeft size={22} color={c.text} strokeWidth={2} />
+          <ChevronLeft size={control.iconLarge} color={c.text} strokeWidth={control.stroke} />
         </PressableScale>
         <View
-          style={{ flex: 1, flexDirection: 'row', gap: 4 }}
+          style={{ flex: 1, flexDirection: 'row', gap: space[1] }}
           accessible
           accessibilityLabel={`Step ${Math.min(i + 1, total)} of ${total}`}
         >
@@ -48,13 +50,17 @@ export default function Permissions() {
         </View>
       </View>
 
-      <View style={{ flex: 1, paddingHorizontal: layout.gutter, justifyContent: 'center' }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1, width: '100%', maxWidth: layout.maxContent + layout.gutter * 2, alignSelf: 'center', paddingHorizontal: layout.gutter, paddingVertical: space[7], justifyContent: 'center' }}
+      >
         {done ? (
-          <Animated.View entering={FadeInRight.springify().damping(motion.spring.smooth.damping)} style={{ gap: space[4] }}>
+          <Animated.View entering={reduced ? undefined : FadeIn.duration(motion.duration.base)} style={{ gap: space[6] }}>
             <Text variant="overline" tone="tertiary" uppercase>
               All set
             </Text>
-            <Text variant="display" accessibilityRole="header">
+            <Text variant="heroCompact" accessibilityRole="header">
               You can change any of this later.
             </Text>
             <Text variant="body" tone="secondary">
@@ -64,15 +70,15 @@ export default function Permissions() {
         ) : (
           <Animated.View
             key={p.key}
-            entering={FadeInRight.springify().damping(motion.spring.smooth.damping).stiffness(motion.spring.smooth.stiffness)}
-            exiting={FadeOutLeft.duration(motion.duration.fast)}
-            style={{ gap: space[5] }}
+            entering={reduced ? undefined : FadeIn.duration(motion.duration.base)}
+            exiting={reduced ? undefined : FadeOut.duration(motion.duration.fast)}
+            style={{ gap: space[6] }}
           >
             <Text variant="overline" tone="tertiary" uppercase>
               {i + 1} of {total}
               {p.optional ? ' · optional' : ''}
             </Text>
-            <Text variant="display" accessibilityRole="header">
+            <Text variant="heroCompact" accessibilityRole="header">
               {p.title}
             </Text>
             <Text variant="body" tone="secondary">
@@ -85,7 +91,7 @@ export default function Permissions() {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[3] }}>
                 {p.powers.map((k) => (
                   <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-                    <FeatureIcon feature={k} size={32} />
+                    <FeatureIcon feature={k} size={space[7]} />
                     <Text variant="calloutMedium">{FEATURE_NAMES[k]}</Text>
                   </View>
                 ))}
@@ -93,9 +99,9 @@ export default function Permissions() {
             </Card>
           </Animated.View>
         )}
-      </View>
+      </ScrollView>
 
-      <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
+      <View style={{ width: '100%', maxWidth: layout.maxContent + layout.gutter * 2, alignSelf: 'center', paddingHorizontal: layout.gutter, gap: space[3] }}>
         {done ? (
           <Button label="Finish" onPress={finish} full />
         ) : (
@@ -118,12 +124,9 @@ export default function Permissions() {
 
 function Segment({ filled, current }: { filled: boolean; current: boolean }) {
   const { c } = useTheme();
-  const style = useAnimatedStyle(() => ({
-    flex: withSpring(current ? 2.4 : 1, motion.spring.snappy),
-  }));
   return (
-    <Animated.View
-      style={[{ height: 4, borderRadius: radius.pill, backgroundColor: filled || current ? c.text : c.surfacePressed, opacity: current ? 1 : filled ? 0.7 : 1 }, style]}
+    <View
+      style={{ flex: 1, height: space[1], borderRadius: radius.pill, backgroundColor: filled || current ? c.text : c.surfacePressed, opacity: current ? 1 : filled ? 0.7 : 1 }}
     />
   );
 }

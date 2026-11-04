@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import { radius, space, useTheme } from '@/theme';
+import { control, radius, space, useTheme } from '@/theme';
 import { Text } from './Text';
 
 export interface ChipProps {
@@ -19,17 +19,18 @@ export function Chip({ label, color, soft, dot, size = 'sm' }: ChipProps) {
         flexDirection: 'row',
         alignItems: 'center',
         alignSelf: 'flex-start',
-        gap: space[1] + 2,
-        paddingHorizontal: size === 'sm' ? space[2] + 2 : space[3],
-        paddingVertical: size === 'sm' ? 4 : 6,
+        maxWidth: '100%',
+        gap: space[2],
+        paddingHorizontal: space[3],
+        paddingVertical: size === 'sm' ? space[1] : space[2],
         borderRadius: radius.pill,
         backgroundColor: soft ?? c.surfaceRaised,
-        borderWidth: soft ? 0 : 1,
+        borderWidth: soft ? 0 : control.hairline,
         borderColor: c.border,
       }}
     >
-      {dot && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color ?? c.text }} />}
-      <Text variant="caption" color={color ?? c.textSecondary}>
+      {dot && <View style={{ width: control.dot, height: control.dot, borderRadius: radius.pill, backgroundColor: color ?? c.text }} />}
+      <Text variant="caption" color={color ?? c.textSecondary} style={{ flexShrink: 1 }}>
         {label}
       </Text>
     </View>

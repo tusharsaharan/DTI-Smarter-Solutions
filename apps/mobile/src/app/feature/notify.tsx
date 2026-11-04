@@ -1,10 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, View } from 'react-native';
 import { Check, ChevronDown, Inbox, Info, X } from 'lucide-react-native';
-import { radius, space, useTheme } from '@/theme';
+import { control, layout, radius, space, useTheme } from '@/theme';
 import { Card, Chip, EmptyState, PressableScale, PrivacyCard, Reveal, Screen, SectionHeader, Text } from '@/ui';
 import { FeatureHero, featureEyebrow } from '@/components/FeatureHero';
-import { setState, useAttune } from '@/state/store';
+import { useAttune } from '@/state/store';
 import { getAttuneNative } from '../../../modules/attune-native';
 import { ago } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -12,10 +12,11 @@ import type { RankedNotification, SenderTier } from '@/state/types';
 
 const TIER_LABEL: Record<SenderTier, string> = { family: 'Family', close: 'Close', class: 'Class', work: 'Work', unknown: 'Unknown' };
 
-const WEIGHTS = [
-  { key: 'Sender', w: 0.4, note: 'Who it is: family, close, class, work. Learned from how fast you reply.' },
-  { key: 'Message urgency', w: 0.35, note: 'What it says: deadlines, times, mentions, "call me". English and Hinglish.' },
-  { key: 'Your responses', w: 0.25, note: 'What you did before: open, reply, dismiss, and your taps here.' },
+const SIGNALS = [
+  { key: 'Message context and college updates', note: 'The latest message is read with a short recent thread window. Exam, viva, class, venue and deadline changes matter, including cancellations. Old messages and group names do not create urgency.' },
+  { key: 'Sender and feedback', note: 'Your explicit sender tags and recent feedback from the same conversation adjust ranking. Recognized current danger retains priority.' },
+  { key: 'Your current context', note: 'Calendar, meeting, navigation and focus signals protect your attention. A current deadline or safety message can still break through.' },
+  { key: 'Uncertainty stays visible', note: 'Unclear meaning, missing content or unavailable model evidence keeps the original notification. A ranking score is not a measured accuracy percentage.' },
 ] as const;
 
 function grant() {
@@ -48,19 +49,14 @@ export default function NotifyScreen() {
     return [...m.entries()];
   }, [items]);
 
-  const feedback = (n: RankedNotification, up: boolean) => {
+  const feedback = async (n: RankedNotification, up: boolean) => {
+    const native = getAttuneNative();
+    if (!native) return;
+    const saved = await native.submitNotificationFeedback(n.id, up ? 'MARKED_IMPORTANT' : 'MARKED_NOT_IMPORTANT').catch(() => false);
+    if (!saved) return;
     if (up) haptic.success();
     else haptic.warn();
     setNoted((p) => ({ ...p, [n.id]: up ? 'up' : 'down' }));
-    setState((s) => ({
-      notifications: s.notifications.map((x) =>
-        x.id === n.id
-          ? { ...x, verdict: up ? 'priority' : 'digest', score: Math.max(0, Math.min(1, x.score + (up ? 0.15 : -0.25))) }
-          : x,
-      ),
-    }));
-    const native = getAttuneNative();
-    if (native) void native.submitNotificationFeedback(n.id, up ? 'MARKED_IMPORTANT' : 'MARKED_NOT_IMPORTANT');
   };
 
   return (
@@ -70,12 +66,12 @@ export default function NotifyScreen() {
         <Reveal>
           <Card>
             <EmptyState
-              icon={<Inbox size={22} color={a.text} strokeWidth={1.9} />}
+              icon={<Inbox size={control.iconLarge} color={a.text} strokeWidth={control.stroke} />}
               title={access === 'granted' ? 'Nothing needs you right now' : 'Waiting for notification access'}
               body={
                 access === 'granted'
                   ? 'Messages that matter will appear here the moment they arrive.'
-                  : 'Attune reads notification text on this phone to rank it. Without access this feature cannot work, and we will not fake it.'
+                  : 'Allow notification access in setup to start ranking messages. Text stays on this phone.'
               }
             />
           </Card>
@@ -84,44 +80,49 @@ export default function NotifyScreen() {
         priority.map((n, i) => (
           <Reveal key={n.id} index={i}>
             <Card>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <Text variant="title3" numberOfLines={1} style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: space[2] }}>
+                <Text variant="title3" style={{ flex: 1, minWidth: space[10] * 2 }}>
                   {n.sender}
                 </Text>
                 <Text variant="numeral" tone="tertiary">
                   {ago(n.postedAt)}
                 </Text>
               </View>
-              <Text variant="caption" tone="tertiary" style={{ marginTop: 2 }}>
+              <Text variant="caption" tone="tertiary" style={{ marginTop: space[2] }}>
                 {n.app}
                 {n.conversation ? ` · ${n.conversation}` : ''}
               </Text>
-              <Text variant="body" tone="secondary" numberOfLines={3} style={{ marginTop: space[3] }}>
+              <Text variant="body" tone="secondary" numberOfLines={3} style={{ marginTop: space[4] }}>
                 {n.text}
               </Text>
               {n.reasons.length > 0 && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: space[3] }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: space[4] }}>
                   {n.reasons.map((r) => (
                     <Chip key={r} label={r} color={a.text} soft={a.soft} />
                   ))}
                 </View>
               )}
+              {n.meaning && (
+                <Text variant="caption" tone="tertiary" style={{ marginTop: space[3] }}>
+                  {n.meaning.intent} · {n.meaning.source} · evidence {Math.round(n.meaning.confidence * 100)}% (not accuracy)
+                </Text>
+              )}
               <View
                 accessible
                 accessibilityLabel={`Priority score ${Math.round(n.score * 100)} percent`}
-                style={{ height: 3, borderRadius: 2, backgroundColor: c.surfacePressed, marginTop: space[4], overflow: 'hidden' }}
+                style={{ height: space[1], borderRadius: radius.pill, backgroundColor: c.surfacePressed, marginTop: space[5], overflow: 'hidden' }}
               >
-                <View style={{ width: `${Math.round(n.score * 100)}%`, height: 3, backgroundColor: a.base }} />
+                <View style={{ width: `${Math.round(n.score * 100)}%`, height: space[1], backgroundColor: c.chart.primary }} />
               </View>
-              <View style={{ flexDirection: 'row', gap: space[2], marginTop: space[4], alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: space[5], alignItems: 'center' }}>
                 {noted[n.id] ? (
                   <Text variant="callout" tone="secondary">
                     Noted. Attune will rank {n.sender} {noted[n.id] === 'up' ? 'higher' : 'lower'}.
                   </Text>
                 ) : (
                   <>
-                    <FeedbackButton label="Important" icon={<Check size={16} color={a.text} strokeWidth={2} />} onPress={() => feedback(n, true)} fg={a.text} bg={a.soft} />
-                    <FeedbackButton label="Not important" icon={<X size={16} color={c.textSecondary} strokeWidth={2} />} onPress={() => feedback(n, false)} fg={c.textSecondary} bg={c.surfaceRaised} />
+                    <FeedbackButton label="Important" icon={<Check size={control.iconSmall} color={a.text} strokeWidth={control.stroke} />} onPress={() => feedback(n, true)} fg={a.text} bg={a.soft} />
+                    <FeedbackButton label="Not important" icon={<X size={control.iconSmall} color={c.textSecondary} strokeWidth={control.stroke} />} onPress={() => feedback(n, false)} fg={c.textSecondary} bg={c.surfaceRaised} />
                   </>
                 )}
               </View>
@@ -135,14 +136,15 @@ export default function NotifyScreen() {
           <SectionHeader title="Left in place" />
           <Card>
             {originals.slice(0, 8).map((n) => (
-              <View key={n.id} style={{ gap: 2, paddingVertical: space[3], borderBottomWidth: 1, borderBottomColor: c.border }}>
+              <View key={n.id} style={{ gap: space[2], paddingVertical: space[5], borderBottomWidth: 1, borderBottomColor: c.border }}>
                 <Text variant="calloutMedium">{n.sender}</Text>
                 <Text variant="caption" tone="tertiary">{n.app}{n.conversation ? ` · ${n.conversation}` : ''}</Text>
                 <Text variant="callout" tone="secondary" numberOfLines={2}>{n.text}</Text>
+                {n.meaning && <Text variant="caption" tone="tertiary">{n.meaning.intent} · {n.meaning.source}</Text>}
               </View>
             ))}
             <Text variant="caption" tone="tertiary" style={{ marginTop: space[3] }}>
-              Mid-score notifications stay in the source app instead of being cancelled or reposted.
+              Uncertain meaning and ordinary requests stay in the source app.
             </Text>
           </Card>
         </>
@@ -151,7 +153,7 @@ export default function NotifyScreen() {
       <SectionHeader title="Held for later" />
       {groups.length === 0 ? (
         <Card>
-          <EmptyState title="No digest yet" body="Low-score notifications are quietly held here and delivered on your schedule or at unlock." />
+          <EmptyState title="No digest yet" body="Confidently low-priority messages appear here after a quiet Attune digest notification is delivered." />
         </Card>
       ) : (
         <Card>
@@ -166,20 +168,20 @@ export default function NotifyScreen() {
                   scaleTo={0.985}
                   style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: space[4], gap: space[3] }}
                 >
-                  <Text variant="bodyMedium" style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" style={{ flex: 1, minWidth: 0 }}>
                     {app}
                   </Text>
                   <Text variant="numeral" tone="secondary">
                     {list.length}
                   </Text>
                   <View style={{ transform: [{ rotate: isOpen ? '180deg' : '0deg' }] }}>
-                    <ChevronDown size={18} color={c.textTertiary} strokeWidth={1.9} />
+                    <ChevronDown size={control.iconSmall} color={c.textTertiary} strokeWidth={control.stroke} />
                   </View>
                 </PressableScale>
                 {isOpen && (
-                  <View style={{ gap: space[3], paddingBottom: space[4] }}>
+                  <View style={{ gap: space[5], paddingBottom: space[5] }}>
                     {list.map((n) => (
-                      <View key={n.id} style={{ gap: 2 }}>
+                      <View key={n.id} style={{ gap: space[2] }}>
                         <Text variant="calloutMedium">
                           {n.sender}
                           <Text variant="caption" tone="tertiary">
@@ -190,7 +192,7 @@ export default function NotifyScreen() {
                         <Text variant="callout" tone="secondary" numberOfLines={2}>
                           {n.text}
                         </Text>
-                        <Text variant="caption" color={a.text} onPress={() => feedback(n, true)} accessibilityRole="button" style={{ marginTop: 2 }}>
+                        <Text variant="calloutMedium" color={a.text} onPress={() => feedback(n, true)} accessibilityRole="button" style={{ paddingVertical: space[3], minHeight: control.touchTarget }}>
                           This one is important
                         </Text>
                       </View>
@@ -206,21 +208,13 @@ export default function NotifyScreen() {
       <SectionHeader title="How ranking works" />
       <Reveal>
         <Card>
-          <View style={{ flexDirection: 'row', height: 10, borderRadius: 5, overflow: 'hidden', gap: 2 }}>
-            {WEIGHTS.map((w, i) => (
-              <View key={w.key} style={{ flex: w.w, backgroundColor: a.base, opacity: 1 - i * 0.3 }} />
-            ))}
-          </View>
-          <View style={{ gap: space[4], marginTop: space[5] }}>
-            {WEIGHTS.map((w, i) => (
+          <View style={{ gap: space[6] }}>
+            {SIGNALS.map((w, i) => (
               <View key={w.key} style={{ flexDirection: 'row', gap: space[3] }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, marginTop: 6, backgroundColor: a.base, opacity: 1 - i * 0.3 }} />
-                <View style={{ flex: 1 }}>
+                <View style={{ width: space[2], height: space[2], borderRadius: radius.pill, marginTop: space[2], backgroundColor: a.text, opacity: 1 - i * 0.1 }} />
+                <View style={{ flex: 1, minWidth: 0, gap: space[2] }}>
                   <Text variant="bodyMedium">
-                    {w.key}{' '}
-                    <Text variant="numeral" tone="tertiary">
-                      {Math.round(w.w * 100)}%
-                    </Text>
+                    {w.key}
                   </Text>
                   <Text variant="callout" tone="secondary">
                     {w.note}
@@ -235,7 +229,7 @@ export default function NotifyScreen() {
       <SectionHeader title="Senders" />
       <Card>
         {senders.length === 0 ? (
-          <EmptyState title="No senders learned yet" body="Each person gets a tier (family, close, class, work) as Attune sees how you respond to them." />
+          <EmptyState title="No sender tags yet" body="Sender tiers come from your explicit family, close, class or work tags; relationships are never guessed from a message." />
         ) : (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2] }}>
             {senders.map(([name, tier]) => (
@@ -245,8 +239,8 @@ export default function NotifyScreen() {
         )}
       </Card>
 
-      <View accessible style={{ flexDirection: 'row', gap: space[3], padding: space[4], borderRadius: radius.md, backgroundColor: a.soft }}>
-        <Info size={18} color={a.text} strokeWidth={1.9} style={{ marginTop: 2 }} />
+      <View accessible style={{ flexDirection: 'row', gap: space[4], padding: layout.cardPadding, borderRadius: radius.lg, backgroundColor: a.soft }}>
+        <Info size={control.icon} color={a.text} strokeWidth={control.stroke} style={{ marginTop: space[1] }} />
         <Text variant="callout" style={{ flex: 1 }}>
           Mute noisy groups in WhatsApp. Attune becomes their smart sound.
         </Text>
@@ -254,7 +248,7 @@ export default function NotifyScreen() {
 
       <PrivacyCard
         senses="Sender, group and message text from notifications, read on this phone."
-        stays="Scores and your feedback live in encrypted on-device storage."
+        stays="Scores, feedback and held digest messages stay in app-private storage on this phone. Thread context is not saved."
         never="Message text is never uploaded or shared."
       />
     </Screen>
@@ -267,10 +261,10 @@ function FeedbackButton({ label, icon, onPress, fg, bg }: { label: string; icon:
       onPress={onPress}
       haptics={false}
       accessibilityLabel={label}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] + 2, height: 38, paddingHorizontal: space[4], borderRadius: radius.pill, backgroundColor: bg }}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: control.touchTarget, maxWidth: '100%', paddingVertical: space[3], paddingHorizontal: space[4], borderRadius: radius.pill, backgroundColor: bg }}
     >
       {icon}
-      <Text variant="calloutMedium" color={fg}>
+      <Text variant="calloutMedium" color={fg} style={{ flexShrink: 1 }}>
         {label}
       </Text>
     </PressableScale>

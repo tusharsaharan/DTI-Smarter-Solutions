@@ -5,31 +5,35 @@
 
 export type FeatureKey = 'notify' | 'keyboard' | 'focus' | 'attention' | 'volume';
 
-/** Primitive palette. Warm neutrals + one accent per feature. */
+/** Kairos-inspired warm neutrals. Feature names, not colour, carry identity. */
+const sage = { base: '#A9C58F', soft: '#A9C58F29', deep: '#6E8A55', onLight: '#49613C' } as const;
+
 export const palette = {
   ink: {
-    0: '#000000',
-    50: '#0A0A0B',
-    100: '#111113',
-    150: '#17171A',
-    200: '#1E1E22',
-    300: '#2A2A30',
-    400: '#3A3A42',
-    500: '#5A5A63',
-    600: '#82828B',
-    700: '#A9A9B0',
-    800: '#D2D1D4',
-    900: '#ECEBE8',
-    950: '#F6F5F1',
-    1000: '#FFFFFF',
+    0: '#173733',
+    50: '#173733',
+    100: '#23231F',
+    150: '#314B43',
+    200: '#49613C',
+    300: '#4F6460',
+    400: '#586B64',
+    500: '#4F6460',
+    600: '#52645E',
+    700: '#7E8F8A',
+    800: '#C9CEC2',
+    900: '#DEDFD6',
+    950: '#E7E6E2',
+    1000: '#FBFAF7',
   },
-  ember: { base: '#FF6A45', soft: '#FF6A4529', deep: '#C2411F', onLight: '#D9481F' },
-  iris: { base: '#9C8CFF', soft: '#9C8CFF29', deep: '#5B47E0', onLight: '#5B47E0' },
-  mint: { base: '#38D9B0', soft: '#38D9B029', deep: '#0F9E7A', onLight: '#0B8566' },
-  sky: { base: '#5BB2FF', soft: '#5BB2FF29', deep: '#1F78D1', onLight: '#1769BA' },
-  honey: { base: '#F5C451', soft: '#F5C45129', deep: '#C8921A', onLight: '#9A6C05' },
-  danger: '#FF5A5F',
-  success: '#38D9B0',
+  sage,
+  // Compatibility aliases for existing screens. They deliberately share one hue.
+  ember: sage,
+  iris: sage,
+  mint: sage,
+  sky: sage,
+  honey: sage,
+  danger: '#9C433A',
+  success: '#49613C',
 } as const;
 
 const featurePrimitive = {
@@ -57,46 +61,33 @@ export interface ThemeColors {
   danger: string;
   success: string;
   scrim: string;
+  decorative: string;
+  focus: string;
+  chart: { primary: string; secondary: string; tertiary: string };
   feature: Record<FeatureKey, { base: string; soft: string; text: string }>;
 }
 
-export const colors: { dark: ThemeColors; light: ThemeColors } = {
-  dark: {
-    bg: palette.ink[50],
-    bgElevated: palette.ink[100],
-    surface: palette.ink[150],
-    surfaceRaised: palette.ink[200],
-    surfacePressed: palette.ink[300],
-    border: '#FFFFFF12',
-    borderStrong: '#FFFFFF24',
-    text: palette.ink[950],
-    textSecondary: palette.ink[700],
-    textTertiary: palette.ink[500],
-    textInverse: palette.ink[50],
-    accent: palette.ink[950],
-    onAccent: palette.ink[50],
-    danger: palette.danger,
-    success: palette.success,
-    scrim: '#000000B3',
-    feature: mapFeatures((p) => ({ base: p.base, soft: p.soft, text: p.base })),
-  },
+export const colors: { light: ThemeColors } = {
   light: {
     bg: palette.ink[950],
-    bgElevated: palette.ink[1000],
-    surface: palette.ink[1000],
-    surfaceRaised: '#FBFAF7',
-    surfacePressed: palette.ink[900],
-    border: '#0A0A0B12',
-    borderStrong: '#0A0A0B24',
+    bgElevated: '#F0EFEB',
+    surface: '#F0EFEB',
+    surfaceRaised: palette.ink[1000],
+    surfacePressed: '#DFE1D8',
+    border: '#17373314',
+    borderStrong: '#17373338',
     text: palette.ink[50],
     textSecondary: palette.ink[500],
     textTertiary: palette.ink[600],
     textInverse: palette.ink[950],
-    accent: palette.ink[50],
-    onAccent: palette.ink[950],
-    danger: '#D93A3F',
-    success: palette.mint.onLight,
-    scrim: '#0A0A0B66',
+    accent: palette.ink[100],
+    onAccent: '#D8E6C2',
+    danger: palette.danger,
+    success: palette.success,
+    scrim: '#17373366',
+    decorative: palette.ink[700],
+    focus: palette.sage.onLight,
+    chart: { primary: palette.sage.onLight, secondary: palette.sage.deep, tertiary: palette.ink[600] },
     feature: mapFeatures((p) => ({ base: p.base, soft: p.soft, text: p.onLight })),
   },
 };
@@ -115,9 +106,9 @@ function mapFeatures(
 
 /** Font family names as registered by the app's font loader. */
 export const fonts = {
-  display: 'InterTight_600SemiBold',
-  displayBold: 'InterTight_700Bold',
-  displayLight: 'InterTight_300Light',
+  display: 'Fahkwang_600SemiBold',
+  displayBold: 'Fahkwang_600SemiBold',
+  displayLight: 'Fahkwang_300Light',
   body: 'Inter_400Regular',
   bodyMedium: 'Inter_500Medium',
   bodySemibold: 'Inter_600SemiBold',
@@ -126,18 +117,24 @@ export const fonts = {
 
 /** Type scale: [fontSize, lineHeight, letterSpacing]. Display sizes are tight-tracked. */
 export const type = {
-  hero: { fontFamily: fonts.displayLight, fontSize: 64, lineHeight: 64, letterSpacing: -2.6 },
-  display: { fontFamily: fonts.display, fontSize: 40, lineHeight: 44, letterSpacing: -1.4 },
-  title1: { fontFamily: fonts.display, fontSize: 30, lineHeight: 34, letterSpacing: -0.9 },
-  title2: { fontFamily: fonts.display, fontSize: 22, lineHeight: 28, letterSpacing: -0.5 },
-  title3: { fontFamily: fonts.display, fontSize: 18, lineHeight: 24, letterSpacing: -0.3 },
+  hero: { fontFamily: fonts.displayLight, fontSize: 56, lineHeight: 64, letterSpacing: -1.8 },
+  heroCompact: { fontFamily: fonts.displayLight, fontSize: 46, lineHeight: 54, letterSpacing: -1.4 },
+  display: { fontFamily: fonts.displayLight, fontSize: 38, lineHeight: 46, letterSpacing: -1.1 },
+  story: { fontFamily: fonts.displayLight, fontSize: 30, lineHeight: 39, letterSpacing: -0.6 },
+  title1: { fontFamily: fonts.display, fontSize: 28, lineHeight: 36, letterSpacing: -0.7 },
+  title2: { fontFamily: fonts.display, fontSize: 22, lineHeight: 30, letterSpacing: -0.4 },
+  title3: { fontFamily: fonts.bodySemibold, fontSize: 18, lineHeight: 25, letterSpacing: -0.2 },
+  indexTitle: { fontFamily: fonts.displayLight, fontSize: 26, lineHeight: 34, letterSpacing: -0.5 },
   body: { fontFamily: fonts.body, fontSize: 16, lineHeight: 24, letterSpacing: -0.1 },
   bodyMedium: { fontFamily: fonts.bodyMedium, fontSize: 16, lineHeight: 24, letterSpacing: -0.1 },
   callout: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, letterSpacing: 0 },
   calloutMedium: { fontFamily: fonts.bodyMedium, fontSize: 14, lineHeight: 20, letterSpacing: 0 },
-  caption: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 16, letterSpacing: 0.2 },
-  overline: { fontFamily: fonts.bodySemibold, fontSize: 11, lineHeight: 14, letterSpacing: 1.4 },
+  caption: { fontFamily: fonts.bodyMedium, fontSize: 12, lineHeight: 18, letterSpacing: 0.1 },
+  overline: { fontFamily: fonts.bodyMedium, fontSize: 11, lineHeight: 16, letterSpacing: 1.4 },
   numeral: { fontFamily: fonts.mono, fontSize: 14, lineHeight: 18, letterSpacing: -0.2 },
+  stat: { fontFamily: fonts.mono, fontSize: 40, lineHeight: 48, letterSpacing: -1.5 },
+  statCompact: { fontFamily: fonts.mono, fontSize: 28, lineHeight: 36, letterSpacing: -0.7 },
+  statLarge: { fontFamily: fonts.mono, fontSize: 64, lineHeight: 76, letterSpacing: -2.5 },
 } as const;
 
 export type TypeVariant = keyof typeof type;
@@ -145,10 +142,26 @@ export type TypeVariant = keyof typeof type;
 /** 4pt spacing grid. */
 export const space = { 0: 0, 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 7: 32, 8: 40, 9: 48, 10: 64, 11: 80 } as const;
 
-export const radius = { xs: 8, sm: 12, md: 18, lg: 24, xl: 32, pill: 999 } as const;
+export const radius = { xs: 8, sm: 12, md: 18, lg: 28, xl: 32, pill: 999 } as const;
 
 /** Page gutters / layout constants. */
-export const layout = { gutter: 20, cardPadding: 20, tabBarHeight: 72, maxContent: 560 } as const;
+export const layout = {
+  gutter: 24, cardPadding: 24, tabBarHeight: 64, maxContent: 560,
+  compactWidth: 380, headerHeight: 56, headerCollapse: 64,
+  sectionGap: 24, introTop: 40, introBottom: 32,
+} as const;
+
+/** Native controls and decorative geometry, shared rather than screen-specific literals. */
+export const control = {
+  touchTarget: 48, buttonHeight: 56, icon: 20, iconSmall: 18, iconLarge: 24,
+  stroke: 1.8, hairline: 1, focusWidth: 2, dot: 6, hitSlop: 12,
+  switch: { width: 52, height: 32, knob: 24, inset: 4 },
+  tab: { width: 320, inset: 6, itemHeight: 50, icon: 18 },
+  feature: { icon: 40, storyIcon: 56, wideHeight: 172, indexWidth: 28 },
+  intro: { pathWidth: 100, pathHeight: 44, pathSegments: 120, dot: 7, trackWidth: 1, pageDot: 6, activeDot: 28, inactiveOpacity: 0.35 },
+  chart: { stroke: 2, secondaryStroke: 1.5, ringStroke: 8, fillOpacity: 0.08 },
+  editorial: { maskPadding: 4, titleTravel: 24, ruleHeight: 8, arrowRotation: 45, indexWidth: 28 },
+} as const;
 
 /** Motion: Reanimated spring configs + timing durations (ms). */
 export const motion = {
@@ -156,11 +169,17 @@ export const motion = {
     snappy: { damping: 22, stiffness: 320, mass: 0.8 },
     smooth: { damping: 26, stiffness: 180, mass: 1 },
     gentle: { damping: 30, stiffness: 110, mass: 1 },
-    bouncy: { damping: 14, stiffness: 220, mass: 0.9 },
+    bouncy: { damping: 26, stiffness: 220, mass: 0.9 },
   },
   duration: { instant: 90, fast: 160, base: 240, slow: 420, ambient: 2400 },
-  pressScale: 0.97,
-  stagger: 55,
+  pressScale: 0.985,
+  rowPressScale: 0.995,
+  stagger: 30,
+  maxStagger: 120,
+  figureEightDuration: 12000,
+  maxAmbientFrame: 64,
+  hoverOpacity: 0.94,
+  editorialDuration: 320,
 } as const;
 
 /** Feature metadata shared by app + keyboard + notifications. Ideas follow the DTI deck strictly. */
@@ -212,5 +231,5 @@ export const features: Record<
 
 export const featureOrder: FeatureKey[] = ['notify', 'keyboard', 'focus', 'attention', 'volume'];
 
-export const tokens = { palette, colors, fonts, type, space, radius, layout, motion, features, featureOrder };
+export const tokens = { palette, colors, fonts, type, space, radius, layout, control, motion, features, featureOrder };
 export default tokens;

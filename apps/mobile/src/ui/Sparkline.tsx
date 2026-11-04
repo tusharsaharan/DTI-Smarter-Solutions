@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
-import { Canvas, LinearGradient, Path, Skia, vec } from '@shopify/react-native-skia';
+import { Canvas, Path, Skia } from '@shopify/react-native-skia';
+import { control } from '@/theme';
 
 export interface SparklineProps {
   data: number[];
   width: number;
   height: number;
   color: string;
-  /** Fill the area under the line with a fading gradient. */
+  /** Subtle solid wash under the line. */
   fill?: boolean;
   strokeWidth?: number;
   min?: number;
@@ -14,7 +15,7 @@ export interface SparklineProps {
 }
 
 /** Smooth (Catmull-Rom → cubic) line chart drawn with Skia. */
-export function Sparkline({ data, width, height, color, fill = true, strokeWidth = 2, min, max }: SparklineProps) {
+export function Sparkline({ data, width, height, color, fill = true, strokeWidth = control.chart.stroke, min, max }: SparklineProps) {
   const { line, area } = useMemo(() => {
     const lo = min ?? Math.min(...data);
     const hi = max ?? Math.max(...data);
@@ -42,9 +43,7 @@ export function Sparkline({ data, width, height, color, fill = true, strokeWidth
   return (
     <Canvas style={{ width, height }}>
       {fill && (
-        <Path path={area}>
-          <LinearGradient start={vec(0, 0)} end={vec(0, height)} colors={[color + '55', color + '00']} />
-        </Path>
+        <Path path={area} color={color} opacity={control.chart.fillOpacity} />
       )}
       <Path path={line} style="stroke" strokeWidth={strokeWidth} color={color} strokeCap="round" strokeJoin="round" />
     </Canvas>

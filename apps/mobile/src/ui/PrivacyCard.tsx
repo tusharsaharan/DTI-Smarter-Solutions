@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 import { ShieldCheck } from 'lucide-react-native';
-import { space, useTheme } from '@/theme';
+import { control, space, useTheme } from '@/theme';
 import { Card } from './Card';
 import { Text } from './Text';
 
@@ -22,16 +22,16 @@ export function PrivacyCard({ senses, stays, never, onWipe }: PrivacyCardProps) 
   return (
     <Card>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[4] }}>
-        <ShieldCheck size={18} color={c.success} strokeWidth={2} />
+        <ShieldCheck size={control.iconSmall} color={c.success} strokeWidth={control.stroke} />
         <Text variant="calloutMedium">Private by design</Text>
       </View>
-      <View style={{ gap: space[3] }}>
+      <View style={{ gap: space[4] }}>
         {rows.map(([k, v]) => (
-          <View key={k} style={{ flexDirection: 'row', gap: space[4] }}>
-            <Text variant="caption" tone="tertiary" style={{ width: 52, paddingTop: 2 }} uppercase>
+          <View key={k} style={{ gap: space[1] }}>
+            <Text variant="caption" tone="tertiary" uppercase>
               {k}
             </Text>
-            <Text variant="callout" tone="secondary" style={{ flex: 1 }}>
+            <Text variant="callout" tone="secondary">
               {v}
             </Text>
           </View>

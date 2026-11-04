@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Linking, TextInput, View } from 'react-native';
+import { Linking, TextInput, View, useWindowDimensions } from 'react-native';
 import { Keyboard as KeyboardIcon, Sparkles } from 'lucide-react-native';
-import { palette, radius, space, useTheme } from '@/theme';
+import { control, layout, radius, space, type, useTheme } from '@/theme';
 import { Button, Card, Chip, EmptyState, PrivacyCard, Reveal, Screen, SectionHeader, Switch, Text } from '@/ui';
 import { FeatureHero, featureEyebrow } from '@/components/FeatureHero';
 import { setState, useAttune } from '@/state/store';
 import { ago, percent } from '@/lib/format';
 import { tokenize } from '@/features/keyboard/hinglish';
+import { numeralVariant } from '@/ui/numeralVariant';
 
 function openKeyboardSettings() {
   const fallback = () => Linking.openSettings().catch(() => {});
@@ -21,14 +22,16 @@ export default function KeyboardScreen() {
   const { c, feature } = useTheme();
   const a = feature('keyboard');
   const kb = useAttune((s) => s.keyboard);
+  const { width, fontScale } = useWindowDimensions();
+  const metricWidth = Math.min(width, layout.maxContent + layout.gutter * 2) - layout.gutter * 2 - layout.cardPadding * 2;
   const [text, setText] = useState('');
   const tokens = useMemo(() => tokenize(text), [text]);
   const hi = tokens.filter((t) => t.lang === 'hi').length;
 
   const mix = kb ? [
-    { label: 'English', v: kb.languageMix.english, o: 1 },
-    { label: 'Hinglish', v: kb.languageMix.hinglish, o: 0.6 },
-    { label: 'Other', v: kb.languageMix.other, o: 0.25 },
+    { label: 'English', v: kb.languageMix.english, color: c.chart.primary },
+    { label: 'Hinglish', v: kb.languageMix.hinglish, color: c.chart.secondary },
+    { label: 'Other', v: kb.languageMix.other, color: c.chart.tertiary },
   ] : [];
 
   const setJoined = (joined: boolean) =>
@@ -41,20 +44,20 @@ export default function KeyboardScreen() {
         <Card>
           {kb ? (
             <>
-              <Text variant="hero" accessibilityLabel={`${kb.keystrokesSaved} keystrokes saved`}>
+              <Text variant={numeralVariant(kb.keystrokesSaved.toLocaleString(), metricWidth, fontScale)} tabular accessibilityLabel={`${kb.keystrokesSaved} keystrokes saved`}>
                 {kb.keystrokesSaved.toLocaleString()}
               </Text>
               <Text variant="callout" tone="secondary" style={{ marginTop: space[1] }}>
                 keystrokes saved
               </Text>
-              <View style={{ flexDirection: 'row', gap: space[7], marginTop: space[5] }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[6], marginTop: space[6] }}>
                 <Stat label="Corrections avoided" value={kb.correctionsAvoided.toLocaleString()} />
                 <Stat label="Words learned" value={kb.wordsLearned.toLocaleString()} />
               </View>
             </>
           ) : (
             <EmptyState
-              icon={<KeyboardIcon size={22} color={a.text} strokeWidth={1.9} />}
+              icon={<KeyboardIcon size={control.iconLarge} color={a.text} strokeWidth={control.stroke} />}
               title="No typing stats yet"
               body="Use the Attune keyboard for a day. Corrections it avoids and keystrokes it saves will be counted here, on this phone."
             />
@@ -67,14 +70,14 @@ export default function KeyboardScreen() {
         <Card>
           {kb && mix.some((m) => m.v > 0) ? (
             <>
-              <View style={{ flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', gap: 2 }}>
+              <View style={{ flexDirection: 'row', height: space[3], borderRadius: radius.pill, overflow: 'hidden', gap: space[1] / 2 }}>
                 {mix.filter((m) => m.v > 0).map((m) => (
-                  <View key={m.label} style={{ flex: m.v, backgroundColor: a.base, opacity: m.o }} />
+                  <View key={m.label} style={{ flex: m.v, backgroundColor: m.color }} />
                 ))}
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: space[4] }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[4], justifyContent: 'space-between', marginTop: space[5] }}>
                 {mix.map((m) => (
-                  <View key={m.label} style={{ gap: 2 }}>
+                  <View key={m.label} style={{ gap: space[2] }}>
                     <Text variant="numeral">{percent(m.v / (mix.reduce((s, x) => s + x.v, 0) || 1))}</Text>
                     <Text variant="caption" tone="secondary">
                       {m.label}
@@ -103,13 +106,14 @@ export default function KeyboardScreen() {
             autoCapitalize="none"
             accessibilityLabel="Typing pad"
             style={{
-              minHeight: 96,
-              padding: space[4],
+              ...type.body,
+              minHeight: space[9] * 3,
+              padding: space[5],
               borderRadius: radius.md,
               backgroundColor: c.surfaceRaised,
               color: c.text,
-              fontSize: 18,
-              lineHeight: 26,
+              borderWidth: control.hairline,
+              borderColor: c.borderStrong,
               textAlignVertical: 'top',
             }}
           />
@@ -135,18 +139,20 @@ export default function KeyboardScreen() {
       <SectionHeader title="Learning together" />
       <Reveal index={3}>
         <Card>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
-            <Sparkles size={20} color={a.text} strokeWidth={1.9} />
-            <Text variant="title3" style={{ flex: 1 }}>
-              Federated learning
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[4] }}>
+            <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+              <Sparkles size={control.icon} color={a.text} strokeWidth={control.stroke} />
+              <Text variant="bodyMedium" style={{ flex: 1, minWidth: 0 }}>
+                Federated learning
+              </Text>
+            </View>
             <Switch value={!!kb?.federated.joined} onChange={setJoined} color={a.base} disabled={!kb} accessibilityLabel="Join federated learning" />
           </View>
-          <Text variant="callout" tone="secondary" style={{ marginTop: space[3] }}>
+          <Text variant="callout" tone="secondary" style={{ marginTop: space[4] }}>
             Your phone learns from you. Only anonymous, noise-protected updates are shared, never your words.
           </Text>
           {kb ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: space[4], marginTop: space[5] }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: space[6], marginTop: space[6] }}>
               <Stat label="Rounds joined" value={String(kb.federated.rounds)} half />
               <Stat label="Model" value={kb.federated.modelVersion ?? 'Not yet'} half />
               <Stat label="Last sync" value={kb.federated.lastSync ? ago(kb.federated.lastSync) : 'Never'} half />
@@ -160,7 +166,7 @@ export default function KeyboardScreen() {
         </Card>
       </Reveal>
 
-      <Button label="Set as system keyboard" color={a.base} full onPress={openKeyboardSettings} icon={<KeyboardIcon size={18} color={palette.ink[50]} strokeWidth={1.9} />} />
+      <Button label="Set as system keyboard" color={a.base} full onPress={openKeyboardSettings} icon={<KeyboardIcon size={control.icon} color={c.onAccent} strokeWidth={control.stroke} />} />
 
       <PrivacyCard
         senses="Which words you type and which you accept or reject."
@@ -173,8 +179,8 @@ export default function KeyboardScreen() {
 
 function Stat({ label, value, half }: { label: string; value: string; half?: boolean }) {
   return (
-    <View style={{ gap: 2, width: half ? '50%' : undefined }}>
-      <Text variant="title2" numberOfLines={1}>
+    <View style={{ gap: space[2], width: half ? '50%' : undefined, minWidth: half ? undefined : space[10] * 2, flexShrink: 1, paddingRight: half ? space[3] : undefined }}>
+      <Text variant="numeral" tabular>
         {value}
       </Text>
       <Text variant="caption" tone="secondary">

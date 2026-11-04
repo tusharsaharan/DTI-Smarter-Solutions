@@ -1,5 +1,5 @@
 import { View, type ViewProps } from 'react-native';
-import { layout, radius, useTheme } from '@/theme';
+import { control, layout, radius, useTheme } from '@/theme';
 import { PressableScale } from './PressableScale';
 
 export interface CardProps extends ViewProps {
@@ -17,7 +17,7 @@ export function Card({ tint, padded = true, raised, onPress, style, children, ..
     {
       backgroundColor: tint ?? (raised ? c.surfaceRaised : c.surface),
       borderRadius: radius.lg,
-      borderWidth: 1,
+      borderWidth: control.hairline,
       borderColor: c.border,
       padding: padded ? layout.cardPadding : 0,
       overflow: 'hidden' as const,

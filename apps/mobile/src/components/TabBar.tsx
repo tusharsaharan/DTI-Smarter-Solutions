@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
-import { View, type LayoutChangeEvent } from 'react-native';
+import { View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import type { BottomTabBarProps } from 'expo-router/tabs';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
-import { CalendarDays, Sparkles, UserRound, type LucideIcon } from 'lucide-react-native';
-import { motion, radius, space, useTheme } from '@/theme';
+import { CalendarDays, CircleDot, UserRound, type LucideIcon } from 'lucide-react-native';
+import { control, layout, motion, radius, space, useTheme } from '@/theme';
 import { PressableScale, Text } from '@/ui';
 
-const icons: Record<string, LucideIcon> = { index: Sparkles, week: CalendarDays, you: UserRound };
+const icons: Record<string, LucideIcon> = { index: CircleDot, week: CalendarDays, you: UserRound };
+const shortLabels: Record<string, string> = { index: 'Today', week: 'Week', you: 'You' };
 
 /** Floating pill tab bar with a spring-sliding active indicator. */
 export function TabBar({ state, descriptors, emitter, navigateToTab }: BottomTabBarProps) {
-  const { c, scheme } = useTheme();
+  const { c } = useTheme();
+  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [w, setW] = useState(0);
   const slot = w / state.routes.length;
@@ -30,31 +31,30 @@ export function TabBar({ state, descriptors, emitter, navigateToTab }: BottomTab
       style={{ position: 'absolute', left: 0, right: 0, bottom: insets.bottom + space[3], alignItems: 'center' }}
     >
       <View
-        onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width - 12)}
+        onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width - control.tab.inset * 2 - control.hairline * 2)}
         style={{
           flexDirection: 'row',
-          width: 280,
-          height: 64,
-          padding: 6,
+          width: Math.min(control.tab.width, width - layout.gutter * 2),
+          minHeight: layout.tabBarHeight,
+          padding: control.tab.inset,
           borderRadius: radius.pill,
           overflow: 'hidden',
-          borderWidth: 1,
+          borderWidth: control.hairline,
           borderColor: c.borderStrong,
-          backgroundColor: scheme === 'dark' ? '#17171ACC' : '#FFFFFFD9',
+          backgroundColor: c.surfaceRaised,
         }}
       >
-        <BlurView intensity={40} tint={scheme} style={{ position: 'absolute', inset: 0 }} />
         {slot > 0 && (
           <Animated.View
             style={[
-              { position: 'absolute', top: 6, left: 6, width: slot, height: 50, borderRadius: radius.pill, backgroundColor: c.accent },
+              { position: 'absolute', top: control.tab.inset, bottom: control.tab.inset, left: control.tab.inset, width: slot, borderRadius: radius.pill, backgroundColor: c.accent },
               indicator,
             ]}
           />
         )}
         {state.routes.map((route, i) => {
           const focused = state.index === i;
-          const Icon = icons[route.name] ?? Sparkles;
+          const Icon = icons[route.name] ?? CircleDot;
           const label = descriptors[route.key].options.title ?? route.name;
           return (
             <PressableScale
@@ -66,12 +66,12 @@ export function TabBar({ state, descriptors, emitter, navigateToTab }: BottomTab
                 const event = emitter.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
                 if (!focused && !event.defaultPrevented) navigateToTab(route.key);
               }}
-              style={{ flex: 1, height: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              style={{ flex: 1, minWidth: 0, minHeight: control.tab.itemHeight, paddingVertical: space[3], paddingHorizontal: space[1], flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[1] }}
             >
-              <Icon size={18} color={focused ? c.onAccent : c.textSecondary} strokeWidth={2} />
+              <Icon size={control.tab.icon} color={focused ? c.onAccent : c.textSecondary} strokeWidth={control.stroke} />
               {focused && (
-                <Text variant="calloutMedium" color={c.onAccent}>
-                  {label}
+                <Text variant="calloutMedium" color={c.onAccent} numberOfLines={1} style={{ flexShrink: 1 }}>
+                  {shortLabels[route.name] ?? label}
                 </Text>
               )}
             </PressableScale>
@@ -83,4 +83,4 @@ export function TabBar({ state, descriptors, emitter, navigateToTab }: BottomTab
 }
 
 /** Space screens must leave at the bottom so content clears the floating bar. */
-export const TAB_BAR_SPACE = 64 + space[6];
+export const TAB_BAR_SPACE = layout.tabBarHeight + space[6];

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { View, useWindowDimensions } from 'react-native';
 import { Canvas, Circle, Path, Skia } from '@shopify/react-native-skia';
 import { Headphones, Minus, Mic, MicOff, Plus, Volume2 } from 'lucide-react-native';
-import { fonts, layout, radius, space, useTheme } from '@/theme';
+import { control, layout, radius, space, useTheme } from '@/theme';
 import { Card, EmptyState, PressableScale, PrivacyCard, Reveal, Row, Screen, SectionHeader, Sparkline, Switch, Text } from '@/ui';
 import { FeatureHero, featureEyebrow } from '@/components/FeatureHero';
 import { useAttune } from '@/state/store';
@@ -24,6 +24,16 @@ const ENV_LABEL: Record<NoiseEnvironment, string> = {
 const DB_LO = 30;
 const DB_HI = 90;
 const mic = permissionList.find((p) => p.key === 'microphone')!;
+
+function ambientStatus(sample: { reason?: string; confidence?: number | null; source?: string }) {
+  const reason = sample.reason ?? '';
+  const voiceMasked = reason.includes('speech_masked') || reason.includes('protected_context_speech');
+  const confidence = typeof sample.confidence === 'number' ? ` · ${Math.round(sample.confidence * 100)}% evidence confidence` : '';
+  if (voiceMasked) return `Speech detected · using the non-speech background floor${confidence}`;
+  if (reason.includes('low_background_floor')) return `Background noise only${confidence}`;
+  if (sample.source === 'microphone_acoustic_features' || sample.source === 'microphone') return `On-device acoustic features${confidence}`;
+  return `Source unavailable${confidence}`;
+}
 
 export default function VolumeScreen() {
   const { c, feature } = useTheme();
@@ -58,7 +68,7 @@ export default function VolumeScreen() {
   };
 
   const last = samples.length ? samples[samples.length - 1] : null;
-  const inner = Math.min(width, layout.maxContent) - layout.gutter * 2 - layout.cardPadding * 2 - 2;
+  const inner = Math.min(width, layout.maxContent + layout.gutter * 2) - layout.gutter * 2 - layout.cardPadding * 2 - control.hairline * 2;
 
   return (
     <Screen
@@ -69,21 +79,24 @@ export default function VolumeScreen() {
       bottomInset={space[4]}
       hero={
         <FeatureHero feature="volume" onGrant={() => openPermissionSettings(mic)} personaNote="whose phone rang loudest in the quietest room">
-          <View style={{ marginTop: space[5] }} accessible accessibilityLabel={last ? `${last.db} decibels, ${ENV_LABEL[last.environment]}` : 'No noise reading yet'}>
+          <View style={{ marginTop: space[4], gap: space[2] }} accessible accessibilityLabel={last ? `${last.db} decibels, ${ENV_LABEL[last.environment]}` : 'No noise reading yet'}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space[2] }}>
               <Text
-                variant="hero"
+                variant="statLarge"
+                tabular
                 color={last ? accent.text : c.textTertiary}
-                style={{ fontFamily: fonts.mono, fontSize: 72, lineHeight: 76, letterSpacing: -3 }}
               >
                 {last ? Math.round(last.db) : '--'}
               </Text>
-              <Text variant="title3" tone="tertiary">
+              <Text variant="bodyMedium" tone="tertiary">
                 dB
               </Text>
             </View>
             <Text variant="bodyMedium" tone="secondary">
-              {last ? `${ENV_LABEL[last.environment]} · ringer ${percent(last.ringVolume)}` : 'Waiting for the first reading'}
+              {last ? `${ENV_LABEL[last.environment]} · ringer ${percent(last.ringVolume)}` : 'No noise reading yet'}
+            </Text>
+            <Text variant="caption" tone="tertiary" style={{ marginTop: space[1] }}>
+              {last ? ambientStatus(last) : 'One-second samples. Raw audio is never saved.'}
             </Text>
           </View>
         </FeatureHero>
@@ -93,11 +106,11 @@ export default function VolumeScreen() {
         <Reveal index={1}>
           <Card tint={accent.soft}>
             <View style={{ flexDirection: 'row', gap: space[3], alignItems: 'flex-start' }}>
-              <MicOff size={20} color={accent.text} strokeWidth={1.9} />
-              <View style={{ flex: 1, gap: space[1] }}>
-                <Text variant="bodyMedium">Using your place instead</Text>
+              <MicOff size={control.icon} color={accent.text} strokeWidth={control.stroke} />
+              <View style={{ flex: 1, minWidth: 0, gap: space[2] }}>
+                <Text variant="bodyMedium">Microphone access is off</Text>
                 <Text variant="callout" tone="secondary">
-                  Without the microphone, the ringer follows where you are: library = quiet, street = louder.
+                  Room noise cannot be measured without microphone access. Any context-only decision is an estimate.
                 </Text>
               </View>
             </View>
@@ -111,19 +124,19 @@ export default function VolumeScreen() {
           {samples.length > 1 ? (
             <View accessible accessibilityLabel="Noise level over time with the ringer volume line">
               <View style={{ width: inner, height: 120 }}>
-                <Sparkline data={samples.map((s) => s.db)} width={inner} height={120} color={accent.base} min={DB_LO} max={DB_HI} />
+                <Sparkline data={samples.map((s) => s.db)} width={inner} height={120} color={c.chart.primary} min={DB_LO} max={DB_HI} />
                 <View style={{ position: 'absolute' }}>
-                  <Sparkline data={samples.map((s) => s.ringVolume)} width={inner} height={120} color={c.textTertiary} min={0} max={1} fill={false} strokeWidth={1.5} />
+                  <Sparkline data={samples.map((s) => s.ringVolume)} width={inner} height={120} color={c.chart.secondary} min={0} max={1} fill={false} strokeWidth={control.chart.secondaryStroke} />
                 </View>
               </View>
-              <View style={{ flexDirection: 'row', gap: space[4], marginTop: space[3] }}>
-                <Key color={accent.base} label="Room noise" />
-                <Key color={c.textTertiary} label="Ringer level" />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[4], marginTop: space[3] }}>
+                <Key color={c.chart.primary} label="Room noise" />
+                <Key color={c.chart.secondary} label="Ringer level" />
               </View>
             </View>
           ) : (
             <EmptyState
-              icon={<Mic size={26} color={accent.base} strokeWidth={1.9} />}
+              icon={<Mic size={control.iconLarge} color={accent.text} strokeWidth={control.stroke} />}
               title="No readings yet"
               body="Every half minute or so Attune listens for one second and notes how loud the room is. The trace builds up here."
             />
@@ -134,9 +147,10 @@ export default function VolumeScreen() {
       <SectionHeader title="Noise to volume" />
       <Reveal index={3}>
         <Card>
-          <CurveView width={inner} min={minVol} max={maxVol} now={last?.db ?? null} color={accent.base} />
+          <CurveView width={inner} min={minVol} max={maxVol} now={last?.db ?? null} color={c.chart.primary} />
           <Text variant="callout" tone="secondary" style={{ marginTop: space[3] }}>
-            The quieter the room, the lower the ringer, never below your minimum or above your maximum.
+            Attune masks detected speech and uses the remaining background floor, so one person talking
+            does not make your ringer louder. Calendar events and Focus protect the quiet policy.
           </Text>
         </Card>
       </Reveal>
@@ -144,7 +158,7 @@ export default function VolumeScreen() {
       <Reveal index={4}>
         <Card>
           <Stepper label="Minimum ringer" value={minVol} lo={0.05} hi={maxVol - 0.05} onChange={(next) => { setMinVol(next); void saveConfig(next, maxVol, leaveHeadphones); }} color={accent.text} />
-          <View style={{ height: 1, backgroundColor: c.border, marginVertical: space[3] }} />
+          <View style={{ height: control.hairline, backgroundColor: c.border, marginVertical: space[6] }} />
           <Stepper label="Maximum ringer" value={maxVol} lo={minVol + 0.05} hi={1} onChange={(next) => { setMaxVol(next); void saveConfig(minVol, next, leaveHeadphones); }} color={accent.text} />
         </Card>
       </Reveal>
@@ -153,7 +167,7 @@ export default function VolumeScreen() {
         <Card>
           <Row
             last
-            icon={<Headphones size={18} color={c.text} strokeWidth={1.9} />}
+            icon={<Headphones size={control.iconSmall} color={c.text} strokeWidth={control.stroke} />}
             title="Headphones: leave volume alone"
             subtitle="Attune never changes volume while headphones are connected."
             trailing={<Switch value={leaveHeadphones} onChange={(next) => { setLeaveHeadphones(next); void saveConfig(minVol, maxVol, next); }} color={accent.base} accessibilityLabel="Leave volume alone with headphones" />}
@@ -164,8 +178,8 @@ export default function VolumeScreen() {
       <Reveal index={6}>
         <PrivacyCard
           senses="Room loudness, one second at a time, and a label like quiet or street."
-          stays="Audio lives in memory for one second. Only the dB number and the label are kept, on this phone."
-          never="Recordings, speech or anything anyone said."
+          stays="Audio lives in memory for one second. Only the background dB, label, confidence and decision reason stay on this phone."
+          never="Recordings, transcripts, voiceprints, speaker identity or anything anyone said."
         />
       </Reveal>
     </Screen>
@@ -175,7 +189,7 @@ export default function VolumeScreen() {
 function Key({ color, label }: { color: string; label: string }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
-      <View style={{ width: 14, height: 3, borderRadius: 2, backgroundColor: color }} />
+      <View style={{ width: space[4], height: space[1], borderRadius: radius.pill, backgroundColor: color }} />
       <Text variant="caption" tone="secondary">
         {label}
       </Text>
@@ -192,19 +206,19 @@ function Stepper({ label, value, lo, hi, onChange, color }: { label: string; val
       onChange(next);
     }
   };
-  const btn = { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: c.surfaceRaised, alignItems: 'center', justifyContent: 'center' } as const;
+  const btn = { width: control.touchTarget, height: control.touchTarget, borderRadius: radius.pill, backgroundColor: c.surfaceRaised, borderWidth: control.hairline, borderColor: c.borderStrong, alignItems: 'center', justifyContent: 'center' } as const;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+    <View style={{ gap: space[4] }}>
       <Text variant="bodyMedium">{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+      <View style={{ flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', gap: space[4] }}>
         <PressableScale accessibilityLabel={`Decrease ${label}`} haptics={false} onPress={() => step(-0.05)} style={btn}>
-          <Minus size={18} color={c.text} strokeWidth={2} />
+          <Minus size={control.iconSmall} color={c.text} strokeWidth={control.stroke} />
         </PressableScale>
-        <Text variant="title3" color={color} tabular style={{ minWidth: 52, textAlign: 'center' }} accessibilityLiveRegion="polite">
+        <Text variant="statCompact" color={color} tabular style={{ minWidth: space[10], textAlign: 'center' }} accessibilityLiveRegion="polite">
           {percent(value)}
         </Text>
         <PressableScale accessibilityLabel={`Increase ${label}`} haptics={false} onPress={() => step(0.05)} style={btn}>
-          <Plus size={18} color={c.text} strokeWidth={2} />
+          <Plus size={control.iconSmall} color={c.text} strokeWidth={control.stroke} />
         </PressableScale>
       </View>
     </View>
@@ -251,7 +265,7 @@ function CurveView({ width, min, max, now, color }: { width: number; min: number
         <Text variant="caption" tone="tertiary">
           {DB_LO} dB · quiet
         </Text>
-        <Volume2 size={14} color={c.textTertiary} strokeWidth={1.9} />
+        <Volume2 size={control.iconSmall} color={c.textTertiary} strokeWidth={control.stroke} />
         <Text variant="caption" tone="tertiary">
           {DB_HI} dB · loud
         </Text>

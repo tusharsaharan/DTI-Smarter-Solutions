@@ -1,10 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Linking, View } from 'react-native';
-import { BellOff, BellRing, Calendar, Clock3, MapPin, Moon, Pause, Smartphone, Undo2, Footprints, type LucideIcon } from 'lucide-react-native';
-import { palette, radius, space, useTheme } from '@/theme';
-import { Card, EmptyState, PressableScale, PrivacyCard, Reveal, Ring, Screen, SectionHeader, Switch, Text } from '@/ui';
+import { BellOff, BellRing, Calendar, MapPin, Moon, Pause, Smartphone, Undo2, Footprints, type LucideIcon } from 'lucide-react-native';
+import { control, radius, space, useTheme } from '@/theme';
+import { Button, Card, EmptyState, PressableScale, PrivacyCard, Reveal, Ring, Screen, SectionHeader, Switch, Text } from '@/ui';
 import { FeatureHero, featureEyebrow } from '@/components/FeatureHero';
-import { setState, useAttune } from '@/state/store';
+import { FocusLearning } from '@/components/FocusLearning';
+import { useAttune } from '@/state/store';
+import { refreshFocusState } from '@/state/focusActions';
+import { focusReason, freshFocusProbability } from '@/state/focusContract';
 import { getAttuneNative } from '../../../modules/attune-native';
 import { clock } from '@/lib/format';
 import { haptic } from '@/lib/haptics';
@@ -35,66 +38,95 @@ export default function FocusScreen() {
   const ctx = useAttune((s) => s.context);
   const log = useAttune((s) => s.focusLog);
   const perms = useAttune((s) => s.permissions);
-  const [rules, setRules] = useState({ priority: true, starred: true, repeat: true });
+  const focus = useAttune((s) => s.focus);
+  const nativeAvailable = !!getAttuneNative();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now);
+  const rules = { starred: focus?.allowPrioritySenders ?? true, repeat: focus?.allowRepeatCallers ?? true };
 
-  const score = ctx ? Math.max(0, Math.min(100, ctx.interruptibility)) : null;
-  const ringColor = score !== null && score < 40 ? palette.ember.base : a.base;
+  useEffect(() => {
+    void refreshFocusState().catch(() => {});
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const probability = freshFocusProbability(focus, now);
+  const freshContext = ctx && now - ctx.at >= 0 && now - ctx.at <= 120_000 ? ctx : null;
+  const score = probability !== null ? Math.round(100 * (1 - probability)) : freshContext ? Math.max(0, Math.min(100, freshContext.interruptibility)) : null;
   const sorted = [...log].sort((x, y) => y.at - x.at);
   const undoable = sorted.find((e) => e.action === 'dnd_on' || e.action === 'dnd_off');
 
-  const undo = () => {
-    if (!undoable) return;
-    haptic.toggle();
-    const turnOn = undoable.action === 'dnd_off';
-    setState((s) => ({
-      dndActive: turnOn,
-      focusLog: [...s.focusLog, { id: `undo-${Date.now()}`, at: Date.now(), action: turnOn ? 'dnd_on' : 'dnd_off', reason: 'You undid the last change' }],
-    }));
+  const manual = async (turnOn: boolean) => {
+    if (busy) return;
     const native = getAttuneNative();
-    if (native) void native.applyDnd(turnOn, rules.priority && rules.starred, rules.repeat);
+    if (!native) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await native.applyDnd(turnOn, rules.starred, rules.repeat);
+      if (result.applied !== true) {
+        setError(result.reason === 'not_active_no_snapshot'
+          ? 'This DND state belongs to Android or another app. Change it in Android settings.'
+          : typeof result.reason === 'string' ? focusReason(result.reason) : 'Android could not change DND. Check policy access and try again.');
+      } else {
+        haptic.toggle();
+        if (result.feedbackSaved === false) setError('DND changed, but this choice could not be saved for learning.');
+      }
+      await refreshFocusState();
+    } catch { setError('Could not change DND. Your Android state has not been replaced by a local toggle.'); }
+    finally { setBusy(false); }
   };
+  const undo = () => { if (undoable) void manual(undoable.action === 'dnd_off'); };
 
-  const changeRule = (key: keyof typeof rules, value: boolean) => {
+  const changeRule = async (key: keyof typeof rules, value: boolean) => {
+    if (busy) return;
     const next = { ...rules, [key]: value };
-    setRules(next);
     const native = getAttuneNative();
-    if (native && dnd) void native.applyDnd(true, next.priority && next.starred, next.repeat);
+    if (!native) return;
+    setBusy(true); setError(null);
+    try {
+      if (!await native.configureFocus(focus?.enabled ?? false, next.starred, next.repeat))
+        setError('The exception rule could not be saved. Check DND access and retry.');
+      await refreshFocusState();
+    } catch { setError('Could not confirm this rule. Check the current Android DND policy before retrying.'); }
+    finally { setBusy(false); }
   };
 
   const signals: { icon: LucideIcon; label: string; value: string | null; perm: PermissionKey }[] = [
-    { icon: Footprints, label: 'Activity', value: ctx && ctx.activity !== 'unknown' ? ctx.activity : null, perm: 'activityRecognition' },
-    { icon: Calendar, label: 'Calendar', value: ctx?.event ?? null, perm: 'calendar' },
-    { icon: MapPin, label: 'Place', value: ctx && ctx.place !== 'unknown' ? ctx.place : null, perm: 'location' },
-    { icon: Smartphone, label: 'App in use', value: ctx?.appCategory ?? null, perm: 'usageAccess' },
+    { icon: Footprints, label: 'Activity', value: freshContext && freshContext.activity !== 'unknown' ? freshContext.activity : null, perm: 'activityRecognition' },
+    { icon: Calendar, label: 'Calendar', value: freshContext?.event ?? null, perm: 'calendar' },
+    { icon: MapPin, label: 'Place', value: freshContext && freshContext.place !== 'unknown' ? freshContext.place : null, perm: 'location' },
+    { icon: Smartphone, label: 'App in use', value: freshContext?.appCategory ?? null, perm: 'usageAccess' },
   ];
 
   return (
     <Screen back title="Smart Focus" eyebrow={featureEyebrow('focus')} eyebrowColor={a.text} hero={<FeatureHero feature="focus" onGrant={grant} personaNote="and everyone with a lecture, a deadline and a phone that will not stop" />}>
+      <FocusLearning>
       <Reveal>
         <Card>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[5] }}>
-            <Ring size={112} stroke={9} progress={score === null ? 0 : score / 100} color={ringColor}>
-              <Text variant="title1" tabular accessibilityLabel={score === null ? 'Interruptibility unknown' : `Interruptibility ${score} of 100`}>
-                {score === null ? '--' : Math.round(score)}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[5] }}>
+            <Ring size={space[10] + space[9]} stroke={control.chart.ringStroke} progress={score === null ? 0 : score / 100} color={c.chart.primary}>
+              <Text variant={score === null ? 'calloutMedium' : 'stat'} tabular accessibilityLabel={score === null ? 'Interruptibility unknown' : `Interruptibility ${score} of 100`}>
+                {score === null ? 'Unknown' : Math.round(score)}
               </Text>
             </Ring>
-            <View style={{ flex: 1, gap: space[1] }}>
+            <View style={{ flex: 1, minWidth: space[10] * 2, gap: space[2] }}>
               <Text variant="overline" tone="tertiary" uppercase>
                 Do Not Disturb
               </Text>
-              <Text variant="display" color={dnd ? a.text : undefined}>
-                {dnd ? 'On' : 'Off'}
+              <Text variant={nativeAvailable ? 'heroCompact' : 'title3'} color={dnd ? a.text : undefined}>
+                {nativeAvailable ? (dnd ? 'On' : 'Off') : 'Unavailable'}
               </Text>
               <Text variant="caption" tone="secondary">
-                {score === null ? 'Waiting for context' : 'Interruptibility, 0 to 100'}
+                {!nativeAvailable ? 'Android DND status is unavailable here' : score === null ? 'Waiting for fresh context' : probability !== null ? 'Predicted interruptibility, 0 to 100' : 'Context estimate, 0 to 100'}
               </Text>
             </View>
           </View>
-          {ctx && ctx.reasons.length > 0 ? (
-            <View style={{ marginTop: space[5], gap: space[2] }}>
-              {ctx.reasons.map((r) => (
+          {freshContext && freshContext.reasons.length > 0 ? (
+            <View style={{ marginTop: space[6], gap: space[3] }}>
+              {freshContext.reasons.map((r) => (
                 <View key={r} style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
-                  <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: a.base }} />
+                  <View style={{ width: space[1], height: space[1], borderRadius: radius.pill, backgroundColor: a.text }} />
                   <Text variant="callout" tone="secondary" style={{ flex: 1 }}>
                     {r}
                   </Text>
@@ -106,15 +138,29 @@ export default function FocusScreen() {
               Reasons will appear here as Attune senses your moment.
             </Text>
           )}
+          <View style={{ marginTop: space[6], gap: space[4] }}>
+            <Button label={focus?.ownsDnd ? 'End Attune DND' : 'Start DND now'} variant="secondary" loading={busy}
+              disabled={!getAttuneNative() || busy || (dnd && !focus?.ownsDnd)} onPress={() => void manual(!focus?.ownsDnd)} />
+             {dnd && !focus?.ownsDnd ? <Text variant="callout" tone="secondary">DND belongs to Android or another app. Attune will leave it alone.</Text> : null}
+             {focus?.ownsDnd && focus.dndPhase !== 'active' ? <Text variant="callout" tone="secondary" accessibilityLiveRegion="polite">
+               Android policy recovery is pending. End Attune DND to stop it, or check Android settings.
+             </Text> : null}
+             {focus?.policyUpdatePending ? <Text variant="callout" tone="danger" accessibilityLiveRegion="polite">
+               {focus.policyUpdateReason ?? 'Your exception change has not been confirmed. Check the current Android DND policy.'}
+             </Text> : null}
+            <Text variant="callout" tone="secondary">Manual choices teach Focus. Timetable predictions always wait for the warning.</Text>
+            {error ? <Text variant="callout" tone="danger" accessibilityLiveRegion="polite">{error}</Text> : null}
+          </View>
         </Card>
       </Reveal>
+      </FocusLearning>
 
       <SectionHeader title="Let through" />
       <Reveal index={1}>
         <Card>
-          <RuleRow title="Priority Inbox alerts" sub="Messages Attune ranks as urgent" value={rules.priority} onChange={(v) => changeRule('priority', v)} color={a.base} />
-          <RuleRow title="Starred and family" sub="Android priority senders" value={rules.starred} onChange={(v) => changeRule('starred', v)} color={a.base} />
-          <RuleRow title="Repeat callers" sub="Same person calling twice within 15 minutes" value={rules.repeat} onChange={(v) => changeRule('repeat', v)} color={a.base} last />
+          <RuleRow title="Starred contacts" sub="People starred in Android contacts" value={rules.starred} onChange={(v) => void changeRule('starred', v)} color={a.base} disabled={busy || !getAttuneNative()} />
+          <RuleRow title="Repeat callers" sub="Android repeat-caller exception" value={rules.repeat} onChange={(v) => void changeRule('repeat', v)} color={a.base} disabled={busy || !getAttuneNative()} last />
+          <Text variant="callout" tone="secondary" style={{ marginTop: space[3] }}>Priority Inbox alerts also depend on Android’s channel and DND settings; Focus cannot promise every alert will bypass them.</Text>
         </Card>
       </Reveal>
 
@@ -129,16 +175,16 @@ export default function FocusScreen() {
                 key={s.label}
                 accessible
                 accessibilityLabel={`${s.label}: ${s.value ?? 'no reading'}. ${PERM_LABEL[status]}`}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: space[3], paddingVertical: space[3] + 2, borderBottomWidth: i === signals.length - 1 ? 0 : 1, borderBottomColor: c.border }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: space[4], paddingVertical: space[5], borderBottomWidth: i === signals.length - 1 ? 0 : 1, borderBottomColor: c.border }}
               >
-                <Icon size={20} color={c.textSecondary} strokeWidth={1.9} />
-                <View style={{ flex: 1 }}>
+                <Icon size={control.icon} color={c.textSecondary} strokeWidth={control.stroke} />
+                <View style={{ flex: 1, minWidth: 0, gap: space[2] }}>
                   <Text variant="bodyMedium">{s.label}</Text>
                   <Text variant="caption" color={status === 'granted' ? c.success : c.textTertiary}>
                     {PERM_LABEL[status]}
                   </Text>
                 </View>
-                <Text variant="calloutMedium" tone={s.value ? 'primary' : 'tertiary'} style={{ textTransform: 'capitalize' }}>
+                <Text variant="calloutMedium" tone={s.value ? 'primary' : 'tertiary'} style={{ flex: 1, minWidth: 0, textAlign: 'right', textTransform: 'capitalize' }}>
                   {s.value ?? 'No reading'}
                 </Text>
               </View>
@@ -151,27 +197,27 @@ export default function FocusScreen() {
       <Reveal index={3}>
         <Card>
           {sorted.length === 0 ? (
-            <EmptyState icon={<BellOff size={22} color={a.text} strokeWidth={1.9} />} title="No changes yet" body="Every automatic change is logged here with its reason, and can be undone in one tap." />
+            <EmptyState icon={<BellOff size={control.iconLarge} color={a.text} strokeWidth={control.stroke} />} title="No changes yet" body="DND changes are logged with their reason. Attune can reverse only the sessions it owns." />
           ) : (
             <View>
-              <View style={{ position: 'absolute', left: 15, top: 8, bottom: 8, width: 1, backgroundColor: c.border }} />
+              <View style={{ position: 'absolute', left: space[4], top: space[2], bottom: space[2], width: 1, backgroundColor: c.border }} />
               {sorted.slice(0, 12).map((e, i) => {
                 const meta = EVENT[e.action];
                 const Icon = meta.icon;
                 return (
-                  <View key={e.id} accessible style={{ flexDirection: 'row', gap: space[4], paddingBottom: i === Math.min(sorted.length, 12) - 1 ? 0 : space[5] }}>
-                    <View style={{ width: 31, height: 31, borderRadius: 16, backgroundColor: e.action === 'dnd_on' ? a.soft : c.surfaceRaised, borderWidth: 4, borderColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
-                      <Icon size={13} color={e.action === 'dnd_on' ? a.text : c.textSecondary} strokeWidth={2} />
+                  <View key={e.id} accessible style={{ flexDirection: 'row', gap: space[4], paddingBottom: i === Math.min(sorted.length, 12) - 1 ? 0 : space[6] }}>
+                    <View style={{ width: space[7], height: space[7], borderRadius: radius.pill, backgroundColor: e.action === 'dnd_on' ? a.soft : c.surfaceRaised, borderWidth: 1, borderColor: c.surface, alignItems: 'center', justifyContent: 'center' }}>
+                      <Icon size={control.iconSmall} color={e.action === 'dnd_on' ? a.text : c.textSecondary} strokeWidth={control.stroke} />
                     </View>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text variant="calloutMedium">{meta.label}</Text>
+                    <View style={{ flex: 1, minWidth: 0, gap: space[2] }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], justifyContent: 'space-between' }}>
+                        <Text variant="calloutMedium" style={{ flexShrink: 1 }}>{meta.label}</Text>
                         <Text variant="numeral" tone="tertiary">
                           {clock(e.at)}
                         </Text>
                       </View>
                       <Text variant="callout" tone="secondary">
-                        {e.reason}
+                        {focusReason(e.reason)}
                       </Text>
                     </View>
                   </View>
@@ -180,43 +226,34 @@ export default function FocusScreen() {
             </View>
           )}
           {undoable && (
-            <PressableScale onPress={undo} haptics={false} accessibilityLabel="Undo last change" style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[5], alignSelf: 'flex-start', height: 38, paddingHorizontal: space[4], borderRadius: radius.pill, backgroundColor: c.surfaceRaised }}>
-              <Undo2 size={16} color={c.text} strokeWidth={1.9} />
+            <PressableScale onPress={undo} haptics={false} accessibilityLabel="Undo last change" style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[6], alignSelf: 'flex-start', minHeight: control.touchTarget, paddingVertical: space[3], paddingHorizontal: space[4], borderRadius: radius.pill, backgroundColor: c.surfaceRaised }}>
+              <Undo2 size={control.iconSmall} color={c.text} strokeWidth={control.stroke} />
               <Text variant="calloutMedium">Undo last change</Text>
             </PressableScale>
           )}
         </Card>
       </Reveal>
 
-      <SectionHeader title="Places you have labelled" />
-      <Card>
-        <EmptyState
-          icon={<Clock3 size={22} color={a.text} strokeWidth={1.9} />}
-          title="No places labelled"
-          body="Label home, college or the library by Wi-Fi network or location, and Focus will know where quiet is expected."
-        />
-      </Card>
-
       <PrivacyCard
-        senses="Activity, calendar titles, Wi-Fi or place, and the category of the app in use."
-        stays="Context is evaluated on this phone and kept in encrypted local storage."
-        never="Your location, calendar and app usage are never uploaded."
+        senses="Reviewed class times, current calendar availability, recent app context and your explicit DND choices."
+        stays="Timetable and personal training data stay in encrypted storage on this phone. Use Delete Focus data above to remove them."
+        never="Your timetable, images, calendar and app context are not uploaded. Temporary import copies are discarded. Google’s OCR SDK may send usage/performance metrics, never the timetable content."
       />
     </Screen>
   );
 }
 
-function RuleRow({ title, sub, value, onChange, color, last }: { title: string; sub: string; value: boolean; onChange: (v: boolean) => void; color: string; last?: boolean }): ReactNode {
+function RuleRow({ title, sub, value, onChange, color, last, disabled }: { title: string; sub: string; value: boolean; onChange: (v: boolean) => void; color: string; last?: boolean; disabled?: boolean }): ReactNode {
   const { c } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[3], paddingVertical: space[3] + 2, borderBottomWidth: last ? 0 : 1, borderBottomColor: c.border }}>
-      <View style={{ flex: 1, gap: 2 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[4], paddingVertical: space[5], borderBottomWidth: last ? 0 : 1, borderBottomColor: c.border }}>
+      <View style={{ flex: 1, minWidth: 0, gap: space[2] }}>
         <Text variant="bodyMedium">{title}</Text>
         <Text variant="callout" tone="secondary">
           {sub}
         </Text>
       </View>
-      <Switch value={value} onChange={onChange} color={color} accessibilityLabel={title} />
+      <Switch value={value} onChange={onChange} color={color} accessibilityLabel={title} disabled={disabled} />
     </View>
   );
 }

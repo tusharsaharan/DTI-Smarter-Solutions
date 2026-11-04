@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { View, useWindowDimensions } from 'react-native';
+import { ScrollView, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Extrapolation,
   interpolate,
@@ -11,8 +11,10 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { ArrowRight } from 'lucide-react-native';
-import { features, layout, radius, space, useTheme, type FeatureKey } from '@/theme';
+import { control, features, layout, radius, space, useTheme, type FeatureKey } from '@/theme';
 import { Button, FeatureIcon, PressableScale, Text } from '@/ui';
+import { FigureEight } from '@/ui/FigureEight';
+import { useMotionPreference } from '@/ui/useMotionPreference';
 import { haptic } from '@/lib/haptics';
 
 interface Story {
@@ -57,6 +59,7 @@ export default function Onboarding() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { c } = useTheme();
+  const reduced = useMotionPreference();
   const x = useSharedValue(0);
   const page = useSharedValue(0);
   const ref = useRef<Animated.ScrollView>(null);
@@ -73,7 +76,8 @@ export default function Onboarding() {
       router.push('/onboarding/permissions');
       return;
     }
-    ref.current?.scrollTo({ x: (idx + 1) * width, animated: true });
+    ref.current?.scrollTo({ x: (idx + 1) * width, animated: !reduced });
+    if (reduced) setIdx(idx + 1);
   };
 
   return (
@@ -81,6 +85,7 @@ export default function Onboarding() {
       <Animated.ScrollView
         ref={ref}
         horizontal
+        style={{ flex: 1 }}
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onScroll={onScroll}
@@ -93,16 +98,16 @@ export default function Onboarding() {
           }
         }}
       >
-        <IntroPage index={0} width={width} x={x} top={insets.top} />
+        <IntroPage index={0} width={width} x={x} top={insets.top} active={idx === 0} reduced={reduced} />
         {stories.map((s, i) => (
-          <StoryPage key={s.feature} story={s} index={i + 1} width={width} x={x} top={insets.top} />
+          <StoryPage key={s.feature} story={s} index={i + 1} width={width} x={x} top={insets.top} reduced={reduced} />
         ))}
       </Animated.ScrollView>
 
-      <View style={{ paddingHorizontal: layout.gutter, paddingBottom: insets.bottom + space[5], gap: space[5] }}>
+      <View style={{ width: '100%', maxWidth: layout.maxContent + layout.gutter * 2, alignSelf: 'center', paddingHorizontal: layout.gutter, paddingTop: space[4], paddingBottom: insets.bottom + layout.introBottom, gap: space[5] }}>
         <Dots count={PAGES} page={page} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <PressableScale accessibilityLabel="Skip to setup" onPress={() => router.push('/onboarding/permissions')} hitSlop={12}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: space[4] }}>
+          <PressableScale accessibilityLabel="Skip to setup" onPress={() => router.push('/onboarding/permissions')} hitSlop={control.hitSlop} style={{ minHeight: control.touchTarget, justifyContent: 'center' }}>
             <Text variant="bodyMedium" tone="tertiary">
               Skip
             </Text>
@@ -110,7 +115,7 @@ export default function Onboarding() {
           <Button
             label={last ? 'Set up Attune' : 'Continue'}
             onPress={goNext}
-            icon={<ArrowRight size={18} color={c.onAccent} strokeWidth={2} />}
+            icon={<ArrowRight size={control.iconSmall} color={c.onAccent} strokeWidth={control.stroke} />}
           />
         </View>
       </View>
@@ -118,11 +123,11 @@ export default function Onboarding() {
   );
 }
 
-function useParallax(x: SharedValue<number>, index: number, width: number, factor: number) {
+function useParallax(x: SharedValue<number>, index: number, width: number, factor: number, reduced: boolean) {
   return useAnimatedStyle(() => ({
     transform: [
       {
-        translateX: interpolate(
+        translateX: reduced ? 0 : interpolate(
           x.value,
           [(index - 1) * width, index * width, (index + 1) * width],
           [width * factor, 0, -width * factor],
@@ -134,64 +139,69 @@ function useParallax(x: SharedValue<number>, index: number, width: number, facto
   }));
 }
 
-function IntroPage({ index, width, x, top }: { index: number; width: number; x: SharedValue<number>; top: number }) {
+function IntroPage({ index, width, x, top, active, reduced }: { index: number; width: number; x: SharedValue<number>; top: number; active: boolean; reduced: boolean }) {
   const { c } = useTheme();
-  const big = useParallax(x, index, width, 0.4);
-  const small = useParallax(x, index, width, 0.18);
+  const big = useParallax(x, index, width, 0.08, reduced);
+  const small = useParallax(x, index, width, 0.04, reduced);
   return (
-    <View style={{ width, paddingTop: top + space[8], paddingHorizontal: layout.gutter, justifyContent: 'center' }}>
-      <Animated.View style={big}>
-        <Text variant="overline" tone="tertiary" uppercase style={{ marginBottom: space[4] }}>
-          Attune
-        </Text>
-        <Text variant="hero" accessibilityRole="header" style={{ fontSize: 52, lineHeight: 54 }}>
-          Same phone, just a bit smarter.
-        </Text>
-      </Animated.View>
-      <Animated.View style={[{ marginTop: space[8], gap: space[2] }, small]}>
-        {loop.map((w, i) => (
-          <View key={w} style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
-            <Text variant="numeral" tone="tertiary">
-              {String(i + 1).padStart(2, '0')}
-            </Text>
-            <View style={{ height: 1, width: space[5], backgroundColor: c.borderStrong }} />
-            <Text variant="title2">{w}</Text>
+    <ScrollView style={{ width, flexShrink: 0 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingTop: top + layout.introTop, paddingBottom: layout.introBottom, justifyContent: 'center' }}>
+      <View style={{ width: '100%', maxWidth: layout.maxContent + layout.gutter * 2, alignSelf: 'center', paddingHorizontal: layout.gutter }}>
+        <Animated.View style={big}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space[6] }}>
+            <Text variant="overline" tone="tertiary" uppercase>Attune</Text>
+            <FigureEight visible={active} />
           </View>
-        ))}
-      </Animated.View>
-    </View>
+          <Text variant={width < layout.compactWidth ? 'heroCompact' : 'hero'} accessibilityRole="header">
+            Same phone, just a bit smarter.
+          </Text>
+        </Animated.View>
+        <Animated.View style={[{ marginTop: space[7], gap: space[3] }, small]}>
+          {loop.map((w, i) => (
+            <View key={w} style={{ flexDirection: 'row', alignItems: 'center', gap: space[3] }}>
+              <Text variant="numeral" tone="tertiary">
+                {String(i + 1).padStart(2, '0')}
+              </Text>
+              <View style={{ height: control.hairline, width: space[5], backgroundColor: c.borderStrong }} />
+              <Text variant="bodyMedium">{w}</Text>
+            </View>
+          ))}
+        </Animated.View>
+      </View>
+    </ScrollView>
   );
 }
 
-function StoryPage({ story, index, width, x, top }: { story: Story; index: number; width: number; x: SharedValue<number>; top: number }) {
-  const { feature } = useTheme();
+function StoryPage({ story, index, width, x, top, reduced }: { story: Story; index: number; width: number; x: SharedValue<number>; top: number; reduced: boolean }) {
+  const { c, feature } = useTheme();
   const f = features[story.feature];
   const accent = feature(story.feature);
-  const big = useParallax(x, index, width, 0.4);
-  const mid = useParallax(x, index, width, 0.25);
-  const small = useParallax(x, index, width, 0.12);
+  const big = useParallax(x, index, width, 0.08, reduced);
+  const mid = useParallax(x, index, width, 0.04, reduced);
+  const small = useParallax(x, index, width, 0.02, reduced);
   return (
-    <View style={{ width, paddingTop: top + space[8], paddingHorizontal: layout.gutter, justifyContent: 'center' }}>
-      <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', gap: space[3], marginBottom: space[6] }, small]}>
-        <FeatureIcon feature={story.feature} size={64} />
-        <View>
-          <Text variant="overline" color={accent.text} uppercase>
-            {String(f.index).padStart(2, '0')} · {f.persona}
+    <ScrollView style={{ width, flexShrink: 0 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingTop: top + layout.introTop, paddingBottom: layout.introBottom, justifyContent: 'center' }}>
+      <View style={{ width: '100%', maxWidth: layout.maxContent + layout.gutter * 2, alignSelf: 'center', paddingHorizontal: layout.gutter }}>
+        <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', gap: space[3], marginBottom: space[6] }, small]}>
+          <FeatureIcon feature={story.feature} size={control.feature.storyIcon} />
+          <View style={{ flex: 1, gap: space[1] }}>
+            <Text variant="overline" color={accent.text} uppercase>
+              {String(f.index).padStart(2, '0')} · {f.persona}
+            </Text>
+            <Text variant="title3">{f.name}</Text>
+          </View>
+        </Animated.View>
+        <Animated.View style={big}>
+          <Text variant="story" accessibilityRole="header">
+            {story.problem}
           </Text>
-          <Text variant="title3">{f.name}</Text>
-        </View>
-      </Animated.View>
-      <Animated.View style={big}>
-        <Text variant="display" accessibilityRole="header" style={{ fontSize: 32, lineHeight: 37 }}>
-          {story.problem}
-        </Text>
-      </Animated.View>
-      <Animated.View style={[{ marginTop: space[6], borderLeftWidth: 2, borderLeftColor: accent.base, paddingLeft: space[4] }, mid]}>
-        <Text variant="body" tone="secondary">
-          {story.answer}
-        </Text>
-      </Animated.View>
-    </View>
+        </Animated.View>
+        <Animated.View style={[{ marginTop: space[6], borderTopWidth: control.hairline, borderTopColor: c.borderStrong, paddingTop: space[6] }, mid]}>
+          <Text variant="body" tone="secondary">
+            {story.answer}
+          </Text>
+        </Animated.View>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -210,9 +220,10 @@ function Dot({ i, page }: { i: number; page: SharedValue<number> }) {
   const style = useAnimatedStyle(() => {
     const d = Math.abs(page.value - i);
     return {
-      width: interpolate(d, [0, 1], [28, 6], Extrapolation.CLAMP),
-      opacity: interpolate(d, [0, 1], [1, 0.35], Extrapolation.CLAMP),
+      width: control.intro.pageDot,
+      transform: [{ scaleX: interpolate(d, [0, 1], [1, 0.7], Extrapolation.CLAMP) }],
+      opacity: interpolate(d, [0, 1], [1, control.intro.inactiveOpacity], Extrapolation.CLAMP),
     };
   });
-  return <Animated.View style={[{ height: 6, borderRadius: radius.pill, backgroundColor: c.text }, style]} />;
+  return <Animated.View style={[{ height: control.intro.pageDot, borderRadius: radius.pill, backgroundColor: c.text }, style]} />;
 }

@@ -3,25 +3,29 @@ import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
-import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from '@expo-google-fonts/inter';
-import { InterTight_300Light, InterTight_600SemiBold, InterTight_700Bold } from '@expo-google-fonts/inter-tight';
-import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
-import { ThemeProvider, useTheme } from '@/theme';
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Fahkwang_300Light } from '@expo-google-fonts/fahkwang/300Light';
+import { Fahkwang_600SemiBold } from '@expo-google-fonts/fahkwang/600SemiBold';
+import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono/500Medium';
+import { colors, ThemeProvider, useTheme } from '@/theme';
 import { useHydrate } from '@/state/useHydrate';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+SystemUI.setBackgroundColorAsync(colors.light.bg).catch(() => {});
 
 export default function RootLayout() {
   const [loaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
-    InterTight_300Light,
-    InterTight_600SemiBold,
-    InterTight_700Bold,
+    Fahkwang_300Light,
+    Fahkwang_600SemiBold,
     JetBrainsMono_500Medium,
   });
   const hydrated = useHydrate();
@@ -44,10 +48,10 @@ export default function RootLayout() {
 }
 
 function Root() {
-  const { c, scheme } = useTheme();
+  const { c } = useTheme();
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <StatusBar style="dark" />
       <Stack
         screenOptions={{
           headerShown: false,

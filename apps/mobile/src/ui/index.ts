@@ -11,3 +11,6 @@ export * from './Reveal';
 export * from './Section';
 export * from './FeatureIcon';
 export * from './PrivacyCard';
+export * from './EditorialTitle';
+export * from './EditorialLink';
+export * from './EditorialRule';

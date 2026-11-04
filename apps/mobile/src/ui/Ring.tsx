@@ -2,7 +2,7 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 import { View } from 'react-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { useSharedValue, withSpring } from 'react-native-reanimated';
-import { motion, useTheme } from '@/theme';
+import { control, motion, useTheme } from '@/theme';
 
 export interface RingProps {
   size: number;
@@ -17,7 +17,7 @@ export interface RingProps {
 }
 
 /** Skia progress ring with spring-animated sweep. Children are centred inside. */
-export function Ring({ size, stroke = 10, progress, color, ghost, ghostColor, children }: RingProps) {
+export function Ring({ size, stroke = control.chart.ringStroke, progress, color, ghost, ghostColor, children }: RingProps) {
   const { c } = useTheme();
   const end = useSharedValue(0);
   const ghostEnd = useSharedValue(0);

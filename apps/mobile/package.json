@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@attune/design-tokens": "*",
+    "@expo-google-fonts/fahkwang": "^0.4.1",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/inter-tight": "^0.4.2",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
