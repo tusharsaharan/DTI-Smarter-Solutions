@@ -79,4 +79,73 @@ class AmbientVolumeTest {
     assertTrue(silence.isFinite())
     assertTrue(silence < fullScale)
   }
+
+  @Test
+  fun aSinglePeriodicVoiceUsesTheQuietNonVoiceFloor() {
+    val samples = ShortArray(16_000) { index ->
+      (Short.MAX_VALUE * 0.20 * kotlin.math.sin(2.0 * Math.PI * 180.0 * index / 16_000.0)).toInt().toShort()
+    }
+
+    val result = AmbientAcousticClassifier.classify(samples, 16_000)
+
+    assertTrue(result.speechDetected)
+    assertEquals("quiet", result.environment)
+    assertTrue(result.backgroundDb < 42f)
+    assertEquals("speech_masked_from_quiet_floor", result.reason)
+  }
+
+  @Test
+  fun speechInCalendarContextIsProtectedWithoutSpeakerIdentification() {
+    val samples = ShortArray(16_000) { index ->
+      (Short.MAX_VALUE * 0.20 * kotlin.math.sin(2.0 * Math.PI * 180.0 * index / 16_000.0)).toInt().toShort()
+    }
+
+    val result = AmbientAcousticClassifier.classify(
+      samples,
+      16_000,
+      AmbientContext(calendarBusy = true)
+    )
+
+    assertTrue(result.speechDetected)
+    assertTrue(result.protectedContext)
+    assertEquals("quiet", result.environment)
+    assertEquals("speech_masked_in_protected_context", result.reason)
+  }
+
+  @Test
+  fun broadbandNoiseUsesTheBackgroundFloorInsteadOfVoicePeak() {
+    val random = java.util.Random(7L)
+    val samples = ShortArray(16_000) { (random.nextGaussian() * 0.24 * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort() }
+
+    val result = AmbientAcousticClassifier.classify(samples, 16_000)
+
+    assertFalse(result.speechDetected)
+    assertTrue(result.backgroundDb >= 50f)
+    assertTrue(result.environment == "street" || result.environment == "transit")
+  }
+
+  @Test
+  fun protectedSpeechCannotReachTheAudioManagerWriteBoundary() {
+    val measured = AmbientVolumeDecision(
+      inputDb = 75f,
+      previousVolume = 4,
+      targetVolume = 9,
+      changed = true,
+      reason = "ambient_curve"
+    )
+    val classification = AmbientClassification(
+      backgroundDb = 40f,
+      environment = "quiet",
+      speechDetected = true,
+      protectedContext = true,
+      confidence = 0.8f,
+      reason = "speech_masked_in_protected_context"
+    )
+
+    val decision = AmbientVolumePolicy.protectSpeech(measured, classification, currentVolume = 4)
+
+    assertFalse(decision.changed)
+    assertEquals(4, decision.targetVolume)
+    assertEquals("protected_context_speech", decision.reason)
+  }
 }

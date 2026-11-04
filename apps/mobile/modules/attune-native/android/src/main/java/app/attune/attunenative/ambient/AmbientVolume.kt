@@ -55,6 +55,19 @@ data class AmbientVolumeDecision(
   )
 }
 
+object AmbientVolumePolicy {
+  /** Speech in a protected context never gets to the AudioManager write boundary. */
+  fun protectSpeech(
+    measured: AmbientVolumeDecision,
+    classification: AmbientClassification,
+    currentVolume: Int
+  ): AmbientVolumeDecision = if (classification.speechDetected && classification.protectedContext) {
+    measured.copy(targetVolume = currentVolume, changed = false, reason = "protected_context_speech")
+  } else {
+    measured
+  }
+}
+
 class AmbientVolumeController(private val config: AmbientVolumeConfig = AmbientVolumeConfig()) {
   fun decide(db: Float, currentVolume: Int, headphonesConnected: Boolean): AmbientVolumeDecision =
     decide(

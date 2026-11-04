@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.IBinder
 import app.attune.attunenative.AttuneEventHub
 import app.attune.attunenative.context.AndroidContextSnapshotProvider
+import app.attune.attunenative.focus.FocusRuntime
 import app.attune.attunenative.history.NativeHistoryStore
 import kotlin.math.roundToInt
 
@@ -114,6 +115,9 @@ object AmbientRuntime {
   @Volatile var environment: String? = null
   @Volatile var source: String? = null
   @Volatile var confidence: Float? = null
+  @Volatile var lastReason: String? = null
+  @Volatile var speechDetected: Boolean = false
+  @Volatile var protectedContext: Boolean = false
   @Volatile var error: String? = null
 
   fun markUnavailable(reason: String) {
@@ -124,6 +128,9 @@ object AmbientRuntime {
     environment = status.environment
     source = status.source
     confidence = status.confidence
+    lastReason = null
+    speechDetected = false
+    protectedContext = false
     error = status.error
   }
 }
@@ -137,6 +144,7 @@ class AmbientSampler(
   private val sampleRate = 16_000
   private val recorderLock = Any()
   private val settingsStore = AmbientUserSettingsStore(context)
+  private val contextProvider = AndroidContextSnapshotProvider(context)
   @Volatile private var stopRequested = false
   private var recorder: AudioRecord? = null
 
@@ -162,7 +170,8 @@ class AmbientSampler(
       stopRequested = true
       return@synchronized null
     }
-    val buffer = ShortArray((sampleRate / 2).coerceAtLeast(minBuffer / 2))
+    // Keep the one-second privacy boundary explicit. The buffer is released after classification.
+    val buffer = ShortArray(sampleRate.coerceAtLeast(minBuffer / 2))
     val localRecorder = runCatching {
       AudioRecord(
         MediaRecorder.AudioSource.MIC,
@@ -185,7 +194,25 @@ class AmbientSampler(
         stopRequested = true
         return@synchronized null
       }
-      val db = DecibelMeter.pcm16ToDb(buffer.copyOf(read))
+      val contextSnapshot = contextProvider.snapshot()
+      val focusActive = runCatching {
+        FocusRuntime.get(context).status()["ownsDnd"] == true
+      }.getOrDefault(false)
+      val classification = AmbientAcousticClassifier.classify(
+        samples = buffer.copyOf(read),
+        sampleRate = sampleRate,
+        context = AmbientContext(
+          calendarBusy = contextSnapshot.calendarBusy,
+          focusActive = focusActive,
+          foregroundPackage = contextSnapshot.foregroundPackage
+        )
+      )
+      val db = classification.backgroundDb
+      if (!db.isFinite()) {
+        AmbientRuntime.markUnavailable("audio_signal_unclassifiable")
+        stopRequested = true
+        return@synchronized null
+      }
       val settings = settingsStore.read()
       val deviceMin = volumeController.minRingVolume()
       val deviceMax = volumeController.maxRingVolume()
@@ -194,7 +221,7 @@ class AmbientSampler(
       val configuredMax = deviceMin + (deviceRange * settings.maxVolumeFraction).roundToInt()
       val headphonesConnected = volumeController.headphonesConnected()
       val current = volumeController.currentRingVolume()
-      val decision = decisionController.decide(
+      val measuredDecision = decisionController.decide(
         db = db,
         currentVolume = current,
         minVolume = configuredMin,
@@ -202,6 +229,9 @@ class AmbientSampler(
         headphonesConnected = headphonesConnected && settings.leaveHeadphonesAlone,
         ringerMode = volumeController.ringerMode()
       )
+      // A protected calendar/Focus context keeps the current ringer policy untouched; speech alone
+      // can never make it louder or trigger a write.
+      val decision = AmbientVolumePolicy.protectSpeech(measuredDecision, classification, current)
       val applied = decision.changed && volumeController.setRingVolume(decision.targetVolume, settings.leaveHeadphonesAlone)
       val finalDecision = if (applied || !decision.changed) {
         decision
@@ -210,9 +240,12 @@ class AmbientSampler(
       }
       AmbientRuntime.lastDb = db
       AmbientRuntime.lastDecision = finalDecision
-      AmbientRuntime.environment = null
-      AmbientRuntime.source = "microphone"
-      AmbientRuntime.confidence = null
+      AmbientRuntime.environment = classification.environment
+      AmbientRuntime.source = classification.source
+      AmbientRuntime.confidence = classification.confidence
+      AmbientRuntime.lastReason = classification.reason
+      AmbientRuntime.speechDetected = classification.speechDetected
+      AmbientRuntime.protectedContext = classification.protectedContext
       AmbientRuntime.error = null
       val actualVolume = volumeController.currentRingVolume()
       val minVolume = volumeController.minRingVolume()
@@ -223,16 +256,19 @@ class AmbientSampler(
         0f
       }
       val atMs = System.currentTimeMillis()
+      val reason = listOf(classification.reason, finalDecision.reason)
+        .distinct()
+        .joinToString("|")
       historyStore.recordAmbient(
         atMs = atMs,
         db = db,
         applied = applied,
         targetVolume = actualVolume,
         ringVolume = normalizedVolume,
-        reason = finalDecision.reason,
-        environment = null,
-        source = "microphone",
-        confidence = null
+        reason = reason,
+        environment = classification.environment,
+        source = classification.source,
+        confidence = classification.confidence
       )
       AttuneEventHub.publish(
         "onAmbientSample",
@@ -242,10 +278,12 @@ class AmbientSampler(
           "applied" to applied,
           "targetVolume" to actualVolume,
           "ringVolume" to normalizedVolume,
-          "reason" to finalDecision.reason,
-          "environment" to null,
-          "source" to "microphone",
-          "confidence" to null
+          "reason" to reason,
+          "environment" to classification.environment,
+          "source" to classification.source,
+          "confidence" to classification.confidence,
+          "speechDetected" to classification.speechDetected,
+          "protectedContext" to classification.protectedContext
         )
       )
       finalDecision
@@ -268,6 +306,8 @@ class AmbientSampler(
     }
     recorder = null
     AmbientRuntime.running = false
+    AmbientRuntime.speechDetected = false
+    AmbientRuntime.protectedContext = false
   }
 
 }
