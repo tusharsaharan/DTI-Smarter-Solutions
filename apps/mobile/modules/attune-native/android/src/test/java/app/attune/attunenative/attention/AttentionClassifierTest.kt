@@ -72,6 +72,6 @@ class AttentionClassifierTest {
     )
 
     assertFalse(status.running)
-    assertEquals("no_gaze_model", status.toMap()["status"])
+    assertEquals("gaze_unavailable", status.toMap()["status"])
   }
 }

@@ -1,0 +1,92 @@
+package app.attune.attunenative.attention
+
+import android.app.KeyguardManager
+import android.content.Context
+import android.os.PowerManager
+import android.os.SystemClock
+import app.attune.attunenative.AttuneEventHub
+import app.attune.attunenative.history.NativeHistoryStore
+import java.io.File
+import java.util.Calendar
+
+/** Owned by the sensor foreground service, so accounting continues with the React UI closed. */
+class AttentionMeasurementRecorder(private val context: Context) {
+  private val usage = AndroidUsageStatsSource(context)
+  private val store = NativeHistoryStore(File(context.filesDir, "attune_history.json"))
+  private val tracker = AttentionIntervalTracker()
+  private val pending = mutableListOf<AttentionInterval>()
+  private var lastFlushMs = 0L
+  private var generation = NativeHistoryStore.attentionGeneration
+
+  fun sample() {
+    if (generation != NativeHistoryStore.attentionGeneration) {
+      pending.clear()
+      tracker.reset()
+      generation = NativeHistoryStore.attentionGeneration
+    }
+    val now = System.currentTimeMillis()
+    val elapsed = SystemClock.elapsedRealtime()
+    val window = usage.window()
+    val screen = screenUsable(context)
+    val classification = currentClassification(context, window, usage.recentInteraction())
+    tracker.advance(AttentionTick(elapsed, now, localDayStart(now), screen && window.usageAccessGranted && window.status == "active_foreground", classification))?.let { interval ->
+      val last = pending.lastOrNull()
+      if (last != null && last.dayStartMs == interval.dayStartMs && last.classification == interval.classification) {
+        pending[pending.lastIndex] = last.copy(durationMs = last.durationMs + interval.durationMs)
+      } else pending.add(interval)
+    }
+    if (elapsed - lastFlushMs >= 15_000L) {
+      flush()
+      val baseline = usage.dailyWindow(localDayStart(now), now)
+      if (baseline.usageAccessGranted && baseline.status != "usage_stats_unavailable") {
+        store.upsertAttentionSnapshot(localDayStart(now), baseline.foregroundMs, UsageStatsAttentionClassifier().classify(baseline))
+      }
+      lastFlushMs = elapsed
+    }
+    AttuneEventHub.publish("onAttentionFrame", classification.toMap() + mapOf("timestampMs" to now))
+  }
+
+  fun reset() {
+    flush()
+    tracker.reset()
+  }
+
+  private fun flush() {
+    pending.forEach { store.recordAttention(it.dayStartMs, 0L, it.classification, it.durationMs, generation) }
+    pending.clear()
+  }
+
+  companion object {
+    fun localDayStart(nowMs: Long): Long = Calendar.getInstance().apply {
+      timeInMillis = nowMs
+      set(Calendar.HOUR_OF_DAY, 0)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    fun screenUsable(context: Context): Boolean {
+      val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+      val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+      return power?.isInteractive == true && keyguard?.isKeyguardLocked != true
+    }
+
+    fun currentClassification(
+      context: Context,
+      window: UsageAttentionWindow = AndroidUsageStatsSource(context).window(),
+      recentInteraction: Boolean = AndroidUsageStatsSource(context).recentInteraction()
+    ): AttentionClassification {
+      if (!screenUsable(context)) return AttentionClassification(AttentionLabel.NOT_IN_USE, 1f, "screen", "screen_off_or_locked")
+      CameraAttentionRuntime.currentClassification()?.let { return it }
+      if (AttentionSensorRuntime.status.running) {
+        return SensorAttentionClassifier().classify(
+          AttentionSensorRuntime.snapshot(),
+          recentInteraction = recentInteraction,
+          usageAccessGranted = window.usageAccessGranted,
+          foregroundMs = if (window.status == "active_foreground") window.foregroundMs else 0L
+        )
+      }
+      return UsageStatsAttentionClassifier().classify(window)
+    }
+  }
+}
