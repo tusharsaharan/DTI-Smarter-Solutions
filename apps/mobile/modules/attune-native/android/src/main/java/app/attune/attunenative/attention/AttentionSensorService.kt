@@ -12,6 +12,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import java.io.FileDescriptor
+import java.io.PrintWriter
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Separate from camera FGS so camera denial/revocation does not disable the motion fallback. */
@@ -109,6 +111,11 @@ class AttuneAttentionSensorService : Service() {
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun dump(fd: FileDescriptor?, writer: PrintWriter, args: Array<out String>?) {
+    // Preserve derived camera failure diagnostics after its foreground service stops.
+    writer.println("ATTUNE_CAMERA_STATUS " + com.google.gson.Gson().toJson(CameraAttentionRuntime.status.toMap(diagnostics = true)))
+  }
 
   companion object {
     private const val CHANNEL_ID = "attune-attention-sensors"

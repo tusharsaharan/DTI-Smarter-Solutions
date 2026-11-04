@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import app.attune.attunenative.attention.AndroidUsageStatsSource
 import app.attune.attunenative.attention.CameraAttentionRuntime
+import app.attune.attunenative.attention.GazeCalibrationRuntime
 import app.attune.attunenative.attention.UsageStatsAttentionClassifier
 import app.attune.attunenative.attention.AttentionMeasurementRecorder
 import app.attune.attunenative.attention.AttentionSensorRuntime
@@ -67,6 +68,12 @@ class AttuneNativeModule : Module() {
     AsyncFunction("getStatusSnapshot") {
       statusSnapshot()
     }
+
+    AsyncFunction("gazeCalibration") { action: String ->
+      GazeCalibrationRuntime.command(requireContext(), action, appContext.currentActivity?.hasWindowFocus() == true)
+    }.runOnQueue(Queues.MAIN)
+
+    OnActivityEntersBackground { GazeCalibrationRuntime.interrupt() }
 
     AsyncFunction("checkPermission") { permission: String ->
       checkPermission(permission)
@@ -274,6 +281,7 @@ class AttuneNativeModule : Module() {
     OnStopObserving("onNativeStatusChanged") { endObserving() }
 
     OnDestroy {
+      GazeCalibrationRuntime.interrupt()
       timetablePromise.getAndSet(null)?.resolve(mapOf("cancelled" to true))
       // Let in-flight OCR finish before its bitmap is recycled; cancellation must not interrupt
       // Tasks.await while ML Kit may still be using the image. Import never saves or enables DND.
@@ -321,13 +329,17 @@ class AttuneNativeModule : Module() {
       "ambient", "volume" -> store.clearAmbient()
       "context", "interruptibility" -> store.clearContext()
       "dnd", "focus" -> store.clearDnd()
-      "attention", "screen_time" -> store.clearAttention()
+      "attention", "screen_time" -> {
+        GazeCalibrationRuntime.command(requireContext(), "delete", false)
+        store.clearAttention()
+      }
       "notification", "notifications" -> {
         val cleared = store.clearNotifications()
         notificationDigestStore().clear()
         cleared
       }
       null, "", "all" -> {
+        GazeCalibrationRuntime.command(requireContext(), "delete", false)
         val cleared = store.clearAll()
         notificationDigestStore().clear()
         cleared

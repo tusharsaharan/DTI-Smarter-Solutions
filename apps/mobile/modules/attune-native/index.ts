@@ -39,6 +39,18 @@ export type AmbientSampleEvent = {
 
 export type NativeHistoryRecord = Record<string, unknown>;
 
+export type GazeCalibrationStatus = {
+  state: 'idle' | 'ready' | 'collecting' | 'finalizing' | 'review' | 'failed' | 'complete';
+  step: string;
+  stepIndex: number;
+  stepCount: number;
+  remainingMs: number;
+  samples: number;
+  reason: string | null;
+  calibrated: boolean;
+  cameraReady: boolean;
+};
+
 type AttuneNativeEvents = {
   onNotificationRanked(event: NotificationRankedEvent): void;
   onAmbientSample(event: AmbientSampleEvent): void;
@@ -48,6 +60,7 @@ type AttuneNativeEvents = {
 
 export declare class AttuneNativeModule extends NativeModule<AttuneNativeEvents> {
   getStatusSnapshot(): Promise<AttuneNativeStatus>;
+  gazeCalibration(action: 'status' | 'begin' | 'collect' | 'confirm' | 'cancel' | 'delete'): Promise<GazeCalibrationStatus>;
   checkPermission(permission: string): Promise<boolean>;
   openSettings(setting: string): Promise<boolean>;
   getNotificationRecords(limit?: number): Promise<NotificationRankedEvent[]>;

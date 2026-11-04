@@ -43,7 +43,10 @@ class AttentionMeasurementRecorder(private val context: Context) {
       }
       lastFlushMs = elapsed
     }
-    AttuneEventHub.publish("onAttentionFrame", classification.toMap() + mapOf("timestampMs" to now))
+    // Re-emitting camera evidence must preserve its capture time and expiry.
+    val event = if (classification.source == "camera") CameraAttentionRuntime.event(elapsed, now)
+      else classification.toMap() + mapOf("timestampMs" to now)
+    AttuneEventHub.publish("onAttentionFrame", event)
   }
 
   fun reset() {
@@ -77,6 +80,7 @@ class AttentionMeasurementRecorder(private val context: Context) {
       recentInteraction: Boolean = AndroidUsageStatsSource(context).recentInteraction()
     ): AttentionClassification {
       if (!screenUsable(context)) return AttentionClassification(AttentionLabel.NOT_IN_USE, 1f, "screen", "screen_off_or_locked")
+      if (GazeCalibrationRuntime.active()) return AttentionClassification(AttentionLabel.UNKNOWN, 0f, "calibration", "gaze_calibration_in_progress")
       CameraAttentionRuntime.currentClassification()?.let { return it }
       if (AttentionSensorRuntime.status.running) {
         return SensorAttentionClassifier().classify(

@@ -70,8 +70,24 @@ and the pinned Java API. Android camera2 input rotation follows Google's
 [front-camera ML input convention](https://developers.google.com/ml-kit/vision/face-detection/android#prepare_the_input_image).
 Product-specific gaze thresholds and temporal gating are our own heuristics, informed by the existing
 `legacy/web/lib/features.ts` eye geometry. These confidence scores are not measured gaze-accuracy percentages.
-Camera frames, landmarks, and blendshape vectors are discarded after each inference; only attention labels,
-source, confidence, and elapsed-time aggregates can reach the app history. No runtime model download is required.
+Subject-relative eye identities and blendshape semantics follow the
+[Face Landmarker output documentation](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker)
+and [v0.10.26 blendshape graph](https://github.com/google-ai-edge/mediapipe/blob/v0.10.26/mediapipe/tasks/cc/vision/face_landmarker/face_blendshapes_graph.cc).
+The bounded personal-calibration fit and validation protocol are original project code;
+see `models/attention/PERSONAL_CALIBRATION.md`.
+
+The native module's release consumer rules include MediaPipe's unmodified
+[v0.10.26 JNI/callback keep rules](https://github.com/google-ai-edge/mediapipe/blob/v0.10.26/mediapipe/java/com/google/mediapipe/framework/proguard.pgcfg)
+and the [Protobuf 26.1 Java Lite reflection rule](https://github.com/protocolbuffers/protobuf/blob/v26.1/java/lite.md)
+for the resolved `protobuf-javalite:4.26.1` runtime (BSD-3-Clause). These prevent
+release optimization from removing reflected protobuf fields or JNI entry points.
+MediaPipe's transitive [Flogger 0.6](https://github.com/google/flogger) logging runtime
+(Apache-2.0) is also retained: its reflective platform loading and stack-based
+caller lookup must survive release optimization during graph initialization.
+Camera frames, landmarks, and full blendshape vectors are discarded after each inference; only attention labels,
+source, confidence, and elapsed-time aggregates can reach the app history. Explicit personal calibration briefly
+retains bounded reduced ratios in memory, then saves only profile summaries in private, backup-excluded storage.
+Protected service dumps expose ephemeral derived diagnostics. No runtime model download is required.
 
 ## App typography
 

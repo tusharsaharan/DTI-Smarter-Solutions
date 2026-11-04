@@ -93,7 +93,7 @@ Cross-feature rules (real behaviour):
 - **Attention:** a camera foreground service runs MediaPipe Face Landmarker, duty-cycled (one frame every 2–3 s while the screen is on). Iris and head pose give an on-screen gaze probability. The gaze maths is ported from the existing `trueattention` code in this repo (`lib/features.ts`, `lib/classifier.ts`, `lib/calibration.ts`). No frames are stored.
 - **Output:** per app, *attended* vs *glance* vs *passive* (propped, navigation, audio-only) minutes, and "Android says 3h 10m · you really spent 1h 52m". A weekly Care report.
 - **Without the camera:** see §6a.
-- **Current implementation:** offline MediaPipe Face Landmarker samples at 2 Hz while unlocked, checks both eyes, eyelids and head direction, and expires stale/ambiguous results. Without camera access a separate foreground service reads accelerometer, available gyro/proximity and recent Android interactions. Both paths are estimates until validated against physical-device ground truth. Daily foreground totals use local-day UsageEvents; attention accumulates only over consecutive observed intervals, never by relabelling historical time. Personal hybrid calibration, per-app attention attribution and hourly attention aggregates remain planned.
+- **Current implementation:** offline MediaPipe Face Landmarker samples at 2 Hz while unlocked, checks both eyes, eyelids and head direction, and expires stale/ambiguous results. An explicit personal gaze check fits five screen targets, then requires fresh reading and three off-screen checks before saving a bounded, backup-excluded on-device profile. See `models/attention/PERSONAL_CALIBRATION.md`; passing setup does not establish general accuracy. Without camera access a separate foreground service reads accelerometer, available gyro/proximity and recent Android interactions. Both paths are estimates until validated against physical-device ground truth. Daily foreground totals use local-day UsageEvents; attention accumulates only over consecutive observed intervals, never by relabelling historical time. Camera-to-sensor hybrid calibration, per-app attention attribution and hourly attention aggregates remain planned.
 
 ### 5 · Ambient Volume: noise-adaptive ringer (Omprakash, Varshith)
 - **Real input:** a mic foreground service records 1 s windows every 20–30 s (plus right before an incoming ring when possible) → dB (calibrated per device), plus YAMNet TFLite → environment (quiet/library, conversation, street, transit, music).
@@ -125,18 +125,18 @@ Validation: we record our own sessions with hand-labelled ground truth and repor
 | all | Battery optimisation | Exemption asked once during onboarding, plus a WorkManager periodic fallback |
 
 ## 7. Open-source we build on
-Clone references into `/vendor` (git-ignored) and credit them in `CREDITS.md`. ✓ = confirmed by search. Verify the licence and last commit before forking the rest.
+Clone references into `/vendor` (git-ignored) and credit them in `CREDITS.md`. References marked “verified” are confirmed by search. Verify the licence and last commit before forking the rest.
 
 | Feature | Repo / lib | Licence | Use |
 |---|---|---|---|
-| 1 | ✓ react-native-android-notification-listener | MIT | Reference / quick start. Final listener is our Kotlin service |
+| 1 | react-native-android-notification-listener (verified) | MIT | Reference / quick start. Final listener is our Kotlin service |
 | 1, 4, 5 | react-native-fast-tflite · TensorFlow Lite | MIT / Apache | On-device models |
 | 2 | **FlorisBoard** (alt: HeliBoard, GPL-3.0 · AnySoftKeyboard) | Apache-2.0 | Keyboard base |
 | 2 | AI4Bharat IndicXlit · LinCE · Hinglish corpora on Hugging Face | MIT / various | Lexicon and LM seed |
-| 2 | ✓ Flower (server) · ✓ FedKit (reference) | Apache-2.0 | FedAvg + DP |
+| 2 | Flower (server, verified) · FedKit (reference, verified) | Apache-2.0 | FedAvg + DP |
 | 3 | Play Services Activity Recognition · expo-calendar · expo-sensors | Apache / MIT | Context |
-| 4 | MediaPipe Face Landmarker (google-ai-edge/mediapipe-samples) · ✓ react-native-vision-camera-face-detector · existing `trueattention` lib | Apache / MIT | Gaze |
-| 5 | ✓ YAMNet TFLite (`tensorflow-lite-task-audio`) | Apache-2.0 | Environment class |
+| 4 | MediaPipe Face Landmarker (google-ai-edge/mediapipe-samples) · react-native-vision-camera-face-detector (verified) · existing `trueattention` lib | Apache / MIT | Gaze |
+| 5 | YAMNet TFLite (`tensorflow-lite-task-audio`, verified) | Apache-2.0 | Environment class |
 | UI | Reanimated, Skia, Gesture Handler, Moti, expo-haptics, expo-blur | MIT | Premium motion and visuals |
 
 Native modules we write: `attune-notify`, `attune-context`, `attune-dnd`, `attune-volume`, `attune-usage`, `attune-attention`.

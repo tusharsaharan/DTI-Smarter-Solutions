@@ -4,8 +4,10 @@ import { control, layout, radius, space, useTheme } from '@/theme';
 import { Button, Card, EmptyState, PrivacyCard, Reveal, Screen, SectionHeader, Text } from '@/ui';
 import { FeatureHero, featureEyebrow } from '@/components/FeatureHero';
 import { Ring } from '@/ui/Ring';
+import { GazeCalibration } from '@/components/GazeCalibration';
 import { useAttune } from '@/state/store';
 import { minutes } from '@/lib/format';
+import { appDisplayName } from '@/lib/appDisplayName';
 import { openPermissionSettings, permissionList } from '@/state/permissionInfo';
 import type { AttentionSource } from '@/state/types';
 
@@ -98,6 +100,7 @@ export default function AttentionScreen() {
           {minutes(day.classifiedMin ?? 0)} classified today. Remaining foreground time is unclassified; no attention is inferred for earlier hours.
         </Text>
       )}
+      <GazeCalibration enabled={enabled} />
       {!hasData && (
         <Reveal index={1}>
           <Card>
@@ -115,13 +118,13 @@ export default function AttentionScreen() {
         <Card>
           {day && day.hourly.some((v) => v > 0) ? (
             <View accessible accessibilityLabel="Attended minutes per hour across the day">
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 88, gap: 3 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: control.chart.hourly.compactHeight, gap: control.chart.hourly.gap }}>
                 {day.hourly.map((v, h) => (
                   <View key={h} style={{ flex: 1, height: '100%', justifyContent: 'flex-end' }}>
                     <View
                       style={{
-                        height: v > 0 ? Math.max(4, (v / maxHour) * 88) : 3,
-                        borderRadius: 3,
+                        height: v > 0 ? Math.max(control.chart.hourly.minHeight, (v / maxHour) * control.chart.hourly.compactHeight) : control.chart.hourly.emptyHeight,
+                        borderRadius: control.chart.hourly.radius,
                         backgroundColor: v > 0 ? c.chart.primary : c.surfacePressed,
                       }}
                     />
@@ -157,15 +160,15 @@ export default function AttentionScreen() {
                   key={a.appPackage}
                   style={{ gap: space[2] }}
                   accessible
-                  accessibilityLabel={`${a.app}: ${minutes(a.attendedMin)} attended, ${minutes(a.glanceMin)} glance, ${minutes(a.passiveMin)} passive`}
+                  accessibilityLabel={`${appDisplayName(a.app)}: ${minutes(a.attendedMin)} attended, ${minutes(a.glanceMin)} glance, ${minutes(a.passiveMin)} passive`}
                 >
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <Text variant="bodyMedium" style={{ flex: 1, minWidth: space[10] * 2 }}>{a.app}</Text>
+                    <Text variant="bodyMedium" style={{ flex: 1, minWidth: space[10] * 2 }}>{appDisplayName(a.app)}</Text>
                     <Text variant="numeral" tone="secondary">
                       {minutes(a.attendedMin)} / {minutes(a.screenOnMin)}
                     </Text>
                   </View>
-                  <View style={{ height: 8, flexDirection: 'row', borderRadius: radius.pill, overflow: 'hidden', backgroundColor: c.surfaceRaised }}>
+                  <View style={{ height: control.chart.stackHeight, flexDirection: 'row', borderRadius: radius.pill, overflow: 'hidden', backgroundColor: c.surfaceRaised }}>
                     <View style={{ width: barW(a.attendedMin, a.screenOnMin), backgroundColor: c.chart.primary, borderRightWidth: control.hairline, borderRightColor: c.surfaceRaised }} />
                     <View style={{ width: barW(a.glanceMin, a.screenOnMin), backgroundColor: c.chart.secondary, borderRightWidth: control.hairline, borderRightColor: c.surfaceRaised }} />
                     <View style={{ width: barW(a.passiveMin, a.screenOnMin), backgroundColor: c.chart.tertiary }} />
@@ -193,7 +196,7 @@ export default function AttentionScreen() {
                   padding: layout.cardPadding,
                   gap: space[3],
                   backgroundColor: active ? accent.soft : undefined,
-                  borderBottomWidth: n === APPROACHES.length - 1 ? 0 : 1,
+                  borderBottomWidth: n === APPROACHES.length - 1 ? 0 : control.hairline,
                   borderBottomColor: c.border,
                 }}
               >
@@ -224,7 +227,7 @@ export default function AttentionScreen() {
       <Reveal index={6}>
         <PrivacyCard
           senses="Foreground apps, accelerometer, available gyroscope and proximity, recent interactions, and optionally camera gaze while the screen is unlocked."
-          stays="Reduced daily duration totals on this phone. Frames and raw motion readings are not saved."
+          stays="Reduced daily duration totals and an optional personal gaze profile on this phone. Delete the profile in Personal gaze check. Frames and raw motion readings are not saved."
           never="Photos, video or frames. They are read in memory and dropped."
         />
       </Reveal>
