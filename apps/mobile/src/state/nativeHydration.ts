@@ -1,7 +1,7 @@
 import { AppState, type AppStateStatus } from 'react-native';
 import type { FeatureKey } from '@attune/design-tokens';
 import { getAttuneNative, type AmbientSampleEvent, type NotificationRankedEvent } from '../../modules/attune-native';
-import { setState } from './store';
+import { getState, setState } from './store';
 import { mapAttentionHistory, mapAttentionLive } from './attentionContract';
 import { mapFocusStatus } from './focusContract';
 import {
@@ -373,7 +373,12 @@ export function startNativeHydration(): () => void {
   let disposed = false;
   let refreshing = false;
   let lastAttentionRefresh = 0;
+  let lastAttentionRecoveryAttempt = 0;
   const subscriptions: NativeSubscription[] = [];
+  const liveExpiry = setInterval(() => {
+    const live = getState().attentionLive;
+    if (live && Date.now() - live.observedAt > 3_000) setState({ attentionLive: null });
+  }, 1_000);
   const refresh = async () => {
     if (disposed || refreshing) return;
     refreshing = true;
@@ -394,6 +399,17 @@ export function startNativeHydration(): () => void {
     const dndHistory = dndResult.status === 'fulfilled' ? historyRecords(dndResult.value, 'records') : null;
     const attentionHistory = attentionResult.status === 'fulfilled' ? historyRecords(attentionResult.value, 'records') : null;
     applyNativeState(status, context, records, ambientHistory, dndHistory, attentionHistory);
+    const attention = asMap(status.attentionSensors);
+    const camera = asMap(status.camera);
+    if (
+      getState().features.attention.enabled &&
+      attention.running !== true &&
+      camera.running !== true &&
+      Date.now() - lastAttentionRecoveryAttempt >= 30_000
+    ) {
+      lastAttentionRecoveryAttempt = Date.now();
+      await native.startService('attention').catch(() => false);
+    }
   };
 
   subscriptions.push(native.addListener('onNotificationRanked', (event) => {
@@ -423,6 +439,7 @@ export function startNativeHydration(): () => void {
 
   return () => {
     disposed = true;
+    clearInterval(liveExpiry);
     subscriptions.forEach((subscription) => subscription.remove());
     appStateListener.remove();
   };

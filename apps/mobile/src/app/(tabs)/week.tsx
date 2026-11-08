@@ -12,6 +12,7 @@ import { SectionHeader, EmptyState } from '@/ui/Section';
 import { TAB_BAR_SPACE } from '@/components/TabBar';
 import type { FocusEvent, VolumeSample } from '@/state/types';
 import { numeralVariant, numeralWidth } from '@/ui/numeralVariant';
+import { summarizeAttention } from '@/state/attentionContract';
 
 /** Minutes the phone spent in Do Not Disturb, from the on/off log. */
 function dndMinutes(log: FocusEvent[], active: boolean, now: number): number {
@@ -68,6 +69,7 @@ export default function Week() {
   const [now] = useState(() => Date.now());
 
   const day = attention.length ? attention[0] : null;
+  const week = useMemo(() => summarizeAttention(attention), [attention]);
   const hasAttentionData = !!day && day.source !== 'usage';
   const sky = feature('attention');
   const ember = feature('notify');
@@ -87,7 +89,14 @@ export default function Week() {
 
   return (
     <Screen title="A little perspective" eyebrow="Care" bottomInset={TAB_BAR_SPACE}>
-      <Text variant="callout" tone="secondary">Attention uses the latest recorded day. Other totals cover the records saved on this phone.</Text>
+      <Text variant="callout" tone="secondary">
+        Attention totals cover {week.days} recorded {week.days === 1 ? 'day' : 'days'} on this phone. Unmatched foreground time remains unknown.
+      </Text>
+      {week.days > 1 && (
+        <Text variant="story">
+          This period: {minutes(week.attendedMin)} attended from {minutes(week.screenOnMin)} foreground, with {minutes(week.unknownMin)} unknown.
+        </Text>
+      )}
       {/* Attention */}
       <Reveal index={0}>
         {day && day.screenOnMin > 0 ? (

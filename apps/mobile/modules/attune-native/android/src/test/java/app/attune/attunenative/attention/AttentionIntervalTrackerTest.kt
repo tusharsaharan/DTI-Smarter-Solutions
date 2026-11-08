@@ -33,6 +33,23 @@ class AttentionIntervalTrackerTest {
     assertEquals(AttentionLabel.PASSIVE, tracker.advance(tick(2000, away))!!.classification.label)
   }
 
+  @Test fun packageSwitchDoesNotAttributeTheIntervalToEitherApp() {
+    val tracker = AttentionIntervalTracker()
+    tracker.advance(tick(0).copy(foregroundPackage = "first", hourOfDay = 10))
+    val interval = tracker.advance(tick(1000).copy(foregroundPackage = "second", hourOfDay = 10))
+    assertEquals(AttentionLabel.UNKNOWN, interval!!.classification.label)
+    assertEquals(null, interval.foregroundPackage)
+    assertEquals(-1, interval.hourOfDay)
+  }
+
+  @Test fun samePackageKeepsHourAttribution() {
+    val tracker = AttentionIntervalTracker()
+    tracker.advance(tick(0).copy(foregroundPackage = "reader", hourOfDay = 10))
+    val interval = tracker.advance(tick(1000).copy(foregroundPackage = "reader", hourOfDay = 10))
+    assertEquals("reader", interval!!.foregroundPackage)
+    assertEquals(10, interval.hourOfDay)
+  }
+
   @Test fun rejectsClockJumpsAndMidnightBoundaries() {
     val tracker = AttentionIntervalTracker()
     tracker.advance(tick(0))

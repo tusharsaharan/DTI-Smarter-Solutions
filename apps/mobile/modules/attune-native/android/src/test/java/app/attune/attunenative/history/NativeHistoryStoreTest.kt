@@ -27,6 +27,20 @@ class NativeHistoryStoreTest {
   }
 
   @Test
+  fun deletingAttentionInvalidatesBufferedSamples() {
+    val file = tempFile()
+    try {
+      val store = NativeHistoryStore(file, nowMs = { 100_000L })
+      val generation = NativeHistoryStore.attentionGeneration
+      val gaze = AttentionClassification(AttentionLabel.ATTENDED, .8f, "camera", "on_screen")
+      assertTrue(store.recordAttention(0L, 0L, gaze, 1_000L, generation))
+      assertTrue(store.deleteAttention(store.attentionHistory().single().id))
+      assertFalse(store.recordAttention(0L, 0L, gaze, 1_000L, generation))
+      assertTrue(store.attentionHistory().isEmpty())
+    } finally { deleteTree(file) }
+  }
+
+  @Test
   fun liveAttentionNeverRelabelsTheDailyBaselineOrDuplicatesOnRefresh() {
     val file = tempFile()
     try {
@@ -54,6 +68,20 @@ class NativeHistoryStoreTest {
       store.upsertAttentionSnapshot(0L, 30_000L, AttentionClassification(AttentionLabel.USAGE_ONLY, .3f, "usage_stats", "baseline"))
       assertEquals("mixed", store.attentionHistory().single().source)
       assertEquals(2_000L, store.attentionHistory().single().attendedMs)
+    } finally { deleteTree(file) }
+  }
+
+  @Test
+  fun attentionPersistsAppAndHourlyAggregates() {
+    val file = tempFile()
+    try {
+      val store = NativeHistoryStore(file, nowMs = { 100_000L })
+      val gaze = AttentionClassification(AttentionLabel.ATTENDED, .8f, "camera", "on_screen")
+      assertTrue(store.recordAttention(0L, 0L, gaze, 2_000L, null, "com.example.reader", 9))
+      val day = store.attentionHistory().single()
+      assertEquals(2_000L, day.appBreakdown["com.example.reader"]?.screenOnMs)
+      assertEquals(2_000L, day.appBreakdown["com.example.reader"]?.attendedMs)
+      assertEquals(2_000L, day.hourlyMs[9])
     } finally { deleteTree(file) }
   }
 

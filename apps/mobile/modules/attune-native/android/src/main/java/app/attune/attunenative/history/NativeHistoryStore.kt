@@ -132,7 +132,9 @@ data class AttentionHistoryRecord(
   val notInUseMs: Long,
   val unknownMs: Long,
   val source: String,
-  val confidence: Float
+  val confidence: Float,
+  val appBreakdown: Map<String, AttentionAppAggregate> = emptyMap(),
+  val hourlyMs: List<Long> = List(24) { 0L }
 ) {
   fun toMap(): Map<String, Any?> = mapOf(
     "id" to id,
@@ -145,7 +147,27 @@ data class AttentionHistoryRecord(
     "notInUseMs" to notInUseMs,
     "unknownMs" to unknownMs,
     "source" to source,
-    "confidence" to confidence
+    "confidence" to confidence,
+    "appBreakdown" to (appBreakdown ?: emptyMap()).mapValues { (_, value) -> value.toMap() },
+    "hourlyMs" to (hourlyMs ?: List(24) { 0L })
+  )
+}
+
+data class AttentionAppAggregate(
+  val screenOnMs: Long = 0L,
+  val attendedMs: Long = 0L,
+  val glanceMs: Long = 0L,
+  val passiveMs: Long = 0L,
+  val usageOnlyMs: Long = 0L,
+  val unknownMs: Long = 0L
+) {
+  fun toMap(): Map<String, Any?> = mapOf(
+    "screenOnMs" to screenOnMs,
+    "attendedMs" to attendedMs,
+    "glanceMs" to glanceMs,
+    "passiveMs" to passiveMs,
+    "usageOnlyMs" to usageOnlyMs,
+    "unknownMs" to unknownMs
   )
 }
 
@@ -261,8 +283,9 @@ class NativeHistoryStore(
     clear { it.copy(attention = emptyList()) }.also { if (it) attentionGeneration += 1 }
   }
 
-  fun deleteAttention(id: String): Boolean = clear {
-    it.copy(attention = it.attention.filterNot { record -> record.id == id })
+  fun deleteAttention(id: String): Boolean = synchronized(lock) {
+    clear { it.copy(attention = it.attention.filterNot { record -> record.id == id }) }
+      .also { if (it) attentionGeneration += 1 }
   }
 
   fun clearAll(): Boolean = synchronized(lock) {
@@ -348,7 +371,9 @@ class NativeHistoryStore(
     foregroundMs: Long,
     classification: AttentionClassification,
     durationMs: Long,
-    expectedGeneration: Long? = null
+    expectedGeneration: Long? = null,
+    foregroundPackage: String? = null,
+    hourOfDay: Int = -1
   ): Boolean {
     if (dayStartMs < 0L || durationMs <= 0L) return false
     val safeDuration = durationMs.coerceAtMost(MAX_INTERVAL_MS)
@@ -378,12 +403,46 @@ class NativeHistoryStore(
         notInUseMs = base.notInUseMs + if (classification.label.name == "NOT_IN_USE") safeDuration else 0L,
         unknownMs = base.unknownMs + if (classification.label.name == "UNKNOWN") safeDuration else 0L,
         source = attentionSource(base.source, classification.source),
-        confidence = classification.confidence.coerceIn(0f, 1f)
+        confidence = classification.confidence.coerceIn(0f, 1f),
+        appBreakdown = addAppAggregate(base.appBreakdown ?: emptyMap(), foregroundPackage, classification, safeDuration),
+        hourlyMs = if (classification.label == app.attune.attunenative.attention.AttentionLabel.ATTENDED) {
+          addHourly(base.hourlyMs ?: List(24) { 0L }, hourOfDay, safeDuration)
+        } else {
+          base.hourlyMs ?: List(24) { 0L }
+        }
       )
       val next = upsert<AttentionHistoryRecord>(envelope.attention, updated, AttentionHistoryRecord::id)
       writeEnvelope(envelope.copy(attention = next.prune(retention.attentionMaxRows, retention.attentionRetentionMs, nowMs()) { it.dayStartMs }))
     }
   }
+
+    private fun addAppAggregate(
+      existing: Map<String, AttentionAppAggregate>,
+      packageName: String?,
+      classification: AttentionClassification,
+      durationMs: Long
+    ): Map<String, AttentionAppAggregate> {
+      val pkg = packageName?.takeUnless { it.isBlank() } ?: return existing
+      val prior = existing[pkg] ?: AttentionAppAggregate()
+      val next = when (classification.label) {
+        app.attune.attunenative.attention.AttentionLabel.ATTENDED -> prior.copy(attendedMs = prior.attendedMs + durationMs)
+        app.attune.attunenative.attention.AttentionLabel.GLANCE -> prior.copy(glanceMs = prior.glanceMs + durationMs)
+        app.attune.attunenative.attention.AttentionLabel.PASSIVE -> prior.copy(passiveMs = prior.passiveMs + durationMs)
+        app.attune.attunenative.attention.AttentionLabel.USAGE_ONLY -> prior.copy(usageOnlyMs = prior.usageOnlyMs + durationMs)
+        app.attune.attunenative.attention.AttentionLabel.UNKNOWN -> prior.copy(unknownMs = prior.unknownMs + durationMs)
+        app.attune.attunenative.attention.AttentionLabel.NOT_IN_USE -> prior
+      }
+      return existing + (pkg to next.copy(screenOnMs = prior.screenOnMs + durationMs))
+    }
+
+    private fun addHourly(existing: List<Long>, hourOfDay: Int, durationMs: Long): List<Long> {
+      if (hourOfDay !in 0..23) return existing
+      val result = existing.toMutableList().apply {
+        while (size < 24) add(0L)
+      }
+      result[hourOfDay] = result[hourOfDay] + durationMs
+      return result.take(24)
+    }
 
   /**
    * Persists a usage-statistics aggregate without treating every UI refresh as new attention

@@ -29,9 +29,24 @@ class AttentionMeasurementRecorder(private val context: Context) {
     val window = usage.window()
     val screen = screenUsable(context)
     val classification = currentClassification(context, window, usage.recentInteraction())
-    tracker.advance(AttentionTick(elapsed, now, localDayStart(now), screen && window.usageAccessGranted && window.status == "active_foreground", classification))?.let { interval ->
+    val calendar = Calendar.getInstance().apply { timeInMillis = now }
+    tracker.advance(
+      AttentionTick(
+        elapsed,
+        now,
+        localDayStart(now),
+        screen && window.usageAccessGranted && window.status == "active_foreground",
+        classification,
+        foregroundPackage = window.topPackage,
+        hourOfDay = calendar.get(Calendar.HOUR_OF_DAY)
+      )
+    )?.let { interval ->
       val last = pending.lastOrNull()
-      if (last != null && last.dayStartMs == interval.dayStartMs && last.classification == interval.classification) {
+      if (last != null && last.dayStartMs == interval.dayStartMs &&
+        last.classification == interval.classification &&
+        last.foregroundPackage == interval.foregroundPackage &&
+        last.hourOfDay == interval.hourOfDay
+      ) {
         pending[pending.lastIndex] = last.copy(durationMs = last.durationMs + interval.durationMs)
       } else pending.add(interval)
     }
@@ -55,8 +70,26 @@ class AttentionMeasurementRecorder(private val context: Context) {
   }
 
   private fun flush() {
-    pending.forEach { store.recordAttention(it.dayStartMs, 0L, it.classification, it.durationMs, generation) }
-    pending.clear()
+    val iterator = pending.iterator()
+    var failed = false
+    while (iterator.hasNext()) {
+      val interval = iterator.next()
+      val written = store.recordAttention(
+        interval.dayStartMs,
+        0L,
+        interval.classification,
+        interval.durationMs,
+        generation,
+        interval.foregroundPackage,
+        interval.hourOfDay
+      )
+      if (written) iterator.remove() else failed = true
+    }
+    if (failed) {
+      AttentionSensorRuntime.status = AttentionSensorRuntime.status.copy(error = "attention_history_write_failed")
+    } else if (AttentionSensorRuntime.status.error == "attention_history_write_failed") {
+      AttentionSensorRuntime.status = AttentionSensorRuntime.status.copy(error = null)
+    }
   }
 
   companion object {

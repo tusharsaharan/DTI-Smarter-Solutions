@@ -102,6 +102,7 @@ export interface AttentionLiveStatus {
   source: AttentionSource;
   confidence: number;
   reason: string;
+  observedAt: number;
 }
 
 export interface AttentionDay {
@@ -114,6 +115,15 @@ export interface AttentionDay {
   apps: AppAttention[];
   /** 24 buckets, attended minutes per hour. */
   hourly: number[];
+}
+
+export interface AttentionSummary {
+  screenOnMin: number;
+  attendedMin: number;
+  classifiedMin: number;
+  unknownMin: number;
+  hourly: number[];
+  days: number;
 }
 
 // ── 5 · Ambient Volume ────────────────────────────────────────────────────────

@@ -60,8 +60,10 @@ events. Sensor estimates cannot measure gaze; stillness or movement alone never 
 Both paths suspend sensing while the screen is off or locked. Gaze tracking withdraws stale,
 occluded or ambiguous readings instead of retaining the previous looking/away result.
 Daily totals use local midnight and keep unobserved foreground time unclassified. Sampled attention
-is buffered for up to 15 seconds; abrupt process termination can lose that final buffer. Per-app
-attention breakdowns, hourly attention charts and personal hybrid calibration remain unimplemented.
+is buffered for up to 15 seconds; abrupt process termination can lose that final buffer. Valid
+observation intervals now carry bounded foreground-package and hour attribution into the native
+history, and the mobile reports consume those aggregates. Personal camera-to-sensor hybrid
+calibration remains unimplemented.
 
 Physical acceptance checks for each rebuilt APK:
 
